@@ -1,6 +1,8 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
+from app.core.database import init_db
 
 # Importación de routers por paquetes
 from app.auth.control import auth_router, users_router
@@ -9,11 +11,23 @@ from app.booking.control import booking_router, payment_router, subscription_rou
 from app.matching.control import matching_router, demand_router
 from app.live.control import live_router, report_router
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Inicialización y sincronización de base de datos según DB_SYNCHRONIZE
+    try:
+        init_db()
+    except Exception as e:
+        print(f"[Database Warning] No se pudo sincronizar automáticamente: {e}")
+    yield
+
+
 # Inicialización de la aplicación FastAPI
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
     description="Backend API de la plataforma EXPERIENCIA - Arquitectura en Capas",
+    lifespan=lifespan,
 )
 
 # Configuración de CORS

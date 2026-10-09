@@ -9,22 +9,28 @@ class Settings(BaseSettings):
     VERSION: str = "1.0.0"
     API_V1_STR: str = "/api"
 
-    # Conexión a la base de datos principal (PostgreSQL)
-    DATABASE_URL: str = os.getenv(
-        "DATABASE_URL",
-        "postgresql://postgres:postgres@localhost:5432/experiencia_db",
+    # Base de Datos PostgreSQL
+    DB_HOST: str = os.getenv("DB_HOST", "localhost")
+    DB_PORT: int = int(os.getenv("DB_PORT", 5432))
+    DB_USER: str = os.getenv("DB_USER", "evert")
+    DB_PASS: str = os.getenv("DB_PASS", "nakroth")
+    DB_NAME: str = os.getenv("DB_NAME", "experiencia_db")
+    DB_SYNCHRONIZE: bool = os.getenv("DB_SYNCHRONIZE", "true").lower() in ("true", "1", "t")
+    DB_LOGGING: bool = os.getenv("DB_LOGGING", "false").lower() in ("true", "1", "t")
+
+    # Seguridad JWT
+    JWT_SECRET: str = os.getenv(
+        "JWT_SECRET",
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWUsImlhdCI6MTUxNjIzOTAyMn0.KMUFsIDTnFmyG3nMiGM6H9FNFUROf3wh7SmqJp-QV30",
     )
-
-    # Seguridad y autenticación JWT
-    JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "super_secret_jwt_key_experiencia_2026")
+    JWT_EXPIRES_IN: str = os.getenv("JWT_EXPIRES_IN", "1d")
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 horas
 
-    # Pasarela de pagos Stripe para reservas y suscripciones SaaS
+    # Pasarela de pagos Stripe
     STRIPE_SECRET_KEY: str = os.getenv("STRIPE_SECRET_KEY", "sk_test_placeholder")
     STRIPE_WEBHOOK_SECRET: str = os.getenv("STRIPE_WEBHOOK_SECRET", "whsec_placeholder")
 
-    # Orígenes permitidos para peticiones CORS (Angular Web y Flutter Móvil)
+    # Orígenes CORS permitidos
     CORS_ORIGINS: List[str] = [
         "http://localhost:4200",
         "http://127.0.0.1:4200",
@@ -32,6 +38,26 @@ class Settings(BaseSettings):
         "http://localhost:8080",
         "*",
     ]
+
+    @property
+    def database_url(self) -> str:
+        # Construye la URL de conexión a PostgreSQL
+        return f"postgresql://{self.DB_USER}:{self.DB_PASS}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+
+    @property
+    def access_token_expire_minutes(self) -> int:
+        # Convierte cadenas como "1d", "2h", "60m" o números en minutos
+        val = self.JWT_EXPIRES_IN.strip().lower()
+        if val.endswith("d"):
+            return int(val[:-1]) * 24 * 60
+        elif val.endswith("h"):
+            return int(val[:-1]) * 60
+        elif val.endswith("m"):
+            return int(val[:-1])
+        try:
+            return int(val)
+        except ValueError:
+            return 60 * 24  # Por defecto 24 horas
 
     class Config:
         env_file = ".env"
