@@ -77,36 +77,107 @@ app/
 
 ---
 
-## 🚀 Puesta en Marcha
+## 🚀 Puesta en Marcha para el Equipo
+
+Sigue estos pasos en orden para clonar, levantar el backend y probar el avance del **Sprint 1**:
 
 ### 1. Requisitos Previos
-- Python 3.11+
-- PostgreSQL 15+ (o levantar mediante Docker Compose en la raíz: `docker compose up -d`)
+- **Python 3.11+** o **3.12** instalado
+- **PostgreSQL 15+** local (o una base de datos en la nube como **Neon Tech**)
 
-### 2. Entorno Virtual e Instalación
+### 2. Clonar rama y preparar Entorno Virtual
 ```bash
+# Cambiarse a la rama del Sprint 1
+git checkout feature/auth-sprint-1
+
 # Crear entorno virtual
 python -m venv venv
 
-# Activar entorno (Linux/macOS)
+# Activar entorno virtual
+# En Windows (PowerShell / CMD):
+venv\Scripts\activate
+# En Linux / macOS:
 source venv/bin/activate
-# En Windows: venv\Scripts\activate
 
-# Instalar dependencias
+# Instalar dependencias del proyecto
 pip install -r requirements.txt
 ```
 
-### 3. Variables de Entorno
-Copia el archivo de ejemplo y edita las variables:
+### 3. Configuración de Variables de Entorno (`.env`)
+Copia el archivo `.env.example` como `.env`:
 ```bash
+# En Windows PowerShell:
+Copy-Item .env.example .env
+# En Linux / macOS / CMD:
 cp .env.example .env
 ```
+Edita `.env` según tu entorno:
+- **Para PostgreSQL local:**
+  ```env
+  DB_HOST=localhost
+  DB_PORT=5432
+  DB_USER=postgres
+  DB_PASS=12345
+  DB_NAME=experiencia_db
+  DB_SYNCHRONIZE=true
+  ```
+- **Para Neon Tech (o base de datos en la nube):**
+  Puedes colocar directamente la variable `DATABASE_URL`:
+  ```env
+  DATABASE_URL=postgresql://neondb_owner:tu_password@ep-xyz.us-east-2.aws.neon.tech/experiencia_db?sslmode=require
+  DB_SYNCHRONIZE=true
+  ```
 
-### 4. Ejecutar el Servidor
+### 4. Inicializar Base de Datos y Poblar Datos Semilla (Seeder)
+Ejecuta el script de seeding para sincronizar las tablas, crear los roles iniciales y generar los usuarios de prueba:
+```bash
+python seed.py
+```
+
+### 5. Ejecutar la Suite de Pruebas Automatizadas
+Verifica que todos los endpoints funcionen correctamente con un solo comando:
+```bash
+python test_auth_endpoints.py
+```
+*Deberás ver: `[SUCCESS] ALL TESTS PASSED SUCCESSFULLY! SPRINT 1 IS 100% OPERATIONAL!`*
+
+### 6. Levantar el Servidor de Desarrollo
 ```bash
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 Documentación interactiva disponible en:
-- Swagger UI: `http://localhost:8000/docs`
-- ReDoc: `http://localhost:8000/redoc`
+- **Swagger UI:** `http://localhost:8000/docs`
+- **ReDoc:** `http://localhost:8000/redoc`
+
+---
+
+## 👥 Usuarios de Prueba para el Equipo (Frontend & Móvil)
+
+Todos los usuarios semilla tienen la **misma contraseña estándar**:  
+🔑 **Contraseña:** `Password123!`
+
+| Rol | Correo Electrónico | Contraseña | Uso sugerido |
+| :--- | :--- | :--- | :--- |
+| **HOST** | `host@experiencia.com` | `Password123!` | Probar creación y gestión de eventos (CU-03) |
+| **ATTENDEE** | `attendee@experiencia.com` | `Password123!` | Probar exploración de catálogo y reservas (CU-04, CU-05) |
+| **VENUE** | `venue@experiencia.com` | `Password123!` | Probar gestión de locales y demanda (CU-07) |
+| **ADMIN** | `admin@experiencia.com` | `Password123!` | Administración general |
+
+---
+
+## 📱 Guía para Integración con Frontend (Angular) y Móvil (Flutter)
+
+1. **Autenticación:** Enviar petición `POST` a `/api/auth/login` con:
+   ```json
+   {
+     "email": "host@experiencia.com",
+     "password": "Password123!"
+   }
+   ```
+2. **Consumo de Endpoints Protegidos:** Adjuntar el token recibido en la cabecera HTTP:
+   ```http
+   Authorization: Bearer <access_token>
+   ```
+3. **Consultar Perfil del Usuario Logueado:** `GET /api/users/me`
+4. **Actualizar Perfil e Intereses:** `PUT /api/users/me` con el JSON de campos a modificar.

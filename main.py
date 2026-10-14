@@ -69,6 +69,10 @@ tags_metadata = [
         "name": "Post-Event Analytics Report Controller (CU-13)",
         "description": "Consulta de curvas de atención y entusiasmo minuto a minuto y exportación de reportes en PDF.",
     },
+    {
+        "name": "System & Database Administration",
+        "description": "Herramientas de mantenimiento para vaciar la base de datos en cascada y poblar datos semilla (Seeder).",
+    },
 ]
 
 # Inicialización de la aplicación FastAPI con parámetros personalizados para Swagger UI
@@ -76,14 +80,13 @@ app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
     description="""
-## 🎟️ EXPERIENCIA — API RESTful & WebSockets
+## EXPERIENCIA — API RESTful & WebSockets
 
 Ecosistema tecnológico para conectar usuarios con experiencias presenciales y virtuales de cupo limitado, optimizando la interacción de la audiencia en tiempo real mediante Visión Artificial e IA.
 
-### 🛡️ Seguridad
 Para consumir endpoints protegidos:
 1. Inicia sesión en `/api/auth/login` para obtener tu **JWT token**.
-2. Haz clic en el botón verde **Authorize 🔓** en la parte superior derecha.
+2. Haz clic en el botón verde **Authorize** en la parte superior derecha.
 3. Ingresa tu token como: `Bearer <tu_token_aqui>`.
     """,
     openapi_tags=tags_metadata,
@@ -126,6 +129,10 @@ app.include_router(demand_router, prefix=settings.API_V1_STR)
 app.include_router(live_router, prefix=settings.API_V1_STR)
 app.include_router(report_router, prefix=settings.API_V1_STR)
 
+# Router para administración y mantenimiento de base de datos (Seeder y Reset)
+from app.core.system_controller import system_router
+app.include_router(system_router, prefix=settings.API_V1_STR)
+
 
 def custom_openapi():
     # Personalización del esquema OpenAPI con esquema de seguridad Bearer JWT
@@ -142,16 +149,22 @@ def custom_openapi():
 
     openapi_schema["components"] = openapi_schema.get("components", {})
     openapi_schema["components"]["securitySchemes"] = {
+        "HTTPBearer": {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+            "description": "Pega tu access_token JWT aquí (funciona con o sin 'Bearer').",
+        },
         "BearerAuth": {
             "type": "http",
             "scheme": "bearer",
             "bearerFormat": "JWT",
-            "description": "Ingresa tu token JWT para autenticar las peticiones.",
-        }
+            "description": "Pega tu access_token JWT aquí (funciona con o sin 'Bearer').",
+        },
     }
 
-    # Aplicar BearerAuth globalmente a todos los endpoints en Swagger UI
-    openapi_schema["security"] = [{"BearerAuth": []}]
+    # Aplicar esquemas globalmente a todos los endpoints en Swagger UI
+    openapi_schema["security"] = [{"HTTPBearer": []}, {"BearerAuth": []}]
 
     app.openapi_schema = openapi_schema
     return app.openapi_schema

@@ -3,23 +3,26 @@ from sqlalchemy.orm import Session
 from app.auth.entity.role import Role
 
 
-# Repositorio para la entidad Role: únicamente firmas de métodos
+# Repositorio para la entidad Role: operaciones de persistencia y consultas (Alta Cohesión)
 class RoleRepository:
     def __init__(self, db: Session):
         self.db = db
 
     def get_by_id(self, role_id: int) -> Optional[Role]:
-        # Buscar rol por ID
-        pass
+        # Buscar rol por ID numérico
+        return self.db.query(Role).filter(Role.id == role_id).first()
 
     def get_by_name(self, name: str) -> Optional[Role]:
-        # Buscar rol por nombre único
-        pass
+        # Buscar rol por nombre normalizado en mayúsculas
+        return self.db.query(Role).filter(Role.name == name.upper().strip()).first()
 
     def create(self, role: Role) -> Role:
-        # Crear un nuevo rol en la base de datos
-        pass
+        # Registrar un nuevo rol en la base de datos
+        self.db.add(role)
+        self.db.commit()
+        self.db.refresh(role)
+        return role
 
     def get_all(self) -> List[Role]:
         # Listar todos los roles del sistema
-        pass
+        return self.db.query(Role).all()
