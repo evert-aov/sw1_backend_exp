@@ -1,5 +1,5 @@
 import os
-from typing import List
+from typing import List, Optional
 from pydantic_settings import BaseSettings
 
 
@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     STRIPE_SECRET_KEY: str = os.getenv("STRIPE_SECRET_KEY", "sk_test_placeholder")
     STRIPE_WEBHOOK_SECRET: str = os.getenv("STRIPE_WEBHOOK_SECRET", "whsec_placeholder")
 
+    # URL de conexión directa opcional (ideal para Neon Tech, AWS RDS, Render)
+    DATABASE_URL: Optional[str] = os.getenv("DATABASE_URL")
+
     # Orígenes CORS permitidos
     CORS_ORIGINS: List[str] = [
         "http://localhost:4200",
@@ -41,8 +44,16 @@ class Settings(BaseSettings):
 
     @property
     def database_url(self) -> str:
-        # Construye la URL de conexión a PostgreSQL
-        return f"postgresql://{self.DB_USER}:{self.DB_PASS}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+        # Si se especifica DATABASE_URL (ej. Neon Tech en la nube o AWS), normalizar el dialecto a psycopg2
+        if self.DATABASE_URL:
+            url = self.DATABASE_URL.strip()
+            if url.startswith("postgres://"):
+                url = url.replace("postgres://", "postgresql+psycopg2://", 1)
+            elif url.startswith("postgresql://") and not url.startswith("postgresql+"):
+                url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
+            return url
+        # Si no, construir desde variables individuales de PostgreSQL local
+        return f"postgresql+psycopg2://{self.DB_USER}:{self.DB_PASS}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
 
     @property
     def access_token_expire_minutes(self) -> int:
