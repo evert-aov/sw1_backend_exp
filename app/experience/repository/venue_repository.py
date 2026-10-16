@@ -9,17 +9,16 @@ class VenueRepository:
         self.db = db
 
     def get_by_id(self, venue_id: int) -> Optional[Venue]:
-        # Buscar establecimiento por ID
-        pass
+        return self.db.query(Venue).filter(Venue.id == venue_id).first()
 
     def create(self, venue: Venue) -> Venue:
-        # Registrar nuevo local o espacio físico
-        pass
+        self.db.add(venue)
+        self.db.commit()
+        self.db.refresh(venue)
+        return venue
 
     def get_by_zone(self, zone: str) -> List[Venue]:
-        # Listar establecimientos por zona geográfica urbana
-        pass
+        return self.db.query(Venue).filter(Venue.zone.ilike(f"%{zone.strip()}%")).all()
 
     def get_all(self) -> List[Venue]:
-        # Listar todos los establecimientos registrados
-        pass
+        return self.db.query(Venue).order_by(Venue.name.asc()).all()
