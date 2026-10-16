@@ -119,20 +119,23 @@ Edita `.env` según tu entorno:
   DB_USER=postgres
   DB_PASS=12345
   DB_NAME=experiencia_db
-  DB_SYNCHRONIZE=true
+  DB_SYNCHRONIZE=false
   ```
 - **Para Neon Tech (o base de datos en la nube):**
   Puedes colocar directamente la variable `DATABASE_URL`:
   ```env
   DATABASE_URL=postgresql://neondb_owner:tu_password@ep-xyz.us-east-2.aws.neon.tech/experiencia_db?sslmode=require
-  DB_SYNCHRONIZE=true
+  DB_SYNCHRONIZE=false
   ```
 
-### 4. Inicializar Base de Datos y Poblar Datos Semilla (Seeder)
-Ejecuta el script de seeding para sincronizar las tablas, crear los roles iniciales y generar los usuarios de prueba:
+### 4. Migrar la Base de Datos y Poblar Datos Semilla
+Aplica primero las migraciones versionadas y después inserta los datos semilla:
 ```bash
+alembic upgrade head
 python seed.py
 ```
+
+`DB_SYNCHRONIZE=false` deja que Alembic sea la fuente de verdad del esquema. 
 
 ### 5. Ejecutar la Suite de Pruebas Automatizadas
 Verifica que todos los endpoints funcionen correctamente con un solo comando:

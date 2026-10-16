@@ -5,11 +5,8 @@ Contraseña estándar para todos los usuarios semilla: Password123!
 """
 
 import sys
-from app.core.database import (
-    reset_and_seed_database,
-    seed_database,
-    SessionLocal,
-)
+from app.core.database import SessionLocal
+from app.core.seeder import reset_and_seed_database, seed_database
 from app.auth.entity.user import User
 from app.auth.entity.role import Role
 from app.auth.entity.user_role import UserRole
