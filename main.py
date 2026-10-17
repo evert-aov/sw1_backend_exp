@@ -7,7 +7,7 @@ from app.core.database import init_db
 
 # Importación de routers por paquetes
 from app.auth.control import auth_router, users_router
-from app.experience.control import experience_router, category_router
+from app.experience.control import experience_router, category_router, venue_router
 from app.booking.control import booking_router, payment_router, subscription_router
 from app.matching.control import matching_router, demand_router
 from app.live.control import live_router, report_router
@@ -38,8 +38,12 @@ tags_metadata = [
         "description": "Publicación de experiencias con control de aforos y exploración del catálogo con filtros geográficos y de modalidad.",
     },
     {
-        "name": "Categories & Venues Controller",
-        "description": "Administración de categorías temáticas y espacios físicos/establecimientos comerciales.",
+        "name": "Categories Controller",
+        "description": "Administración de categorías temáticas de experiencias (Gastronomía, Arte, Música, etc.).",
+    },
+    {
+        "name": "Venues Controller",
+        "description": "Administración y registro de espacios físicos y locales comerciales.",
     },
     {
         "name": "Booking Controller (CU-06)",
@@ -118,6 +122,8 @@ app.include_router(users_router, prefix=settings.API_V1_STR)
 
 app.include_router(experience_router, prefix=settings.API_V1_STR)
 app.include_router(category_router, prefix=settings.API_V1_STR)
+app.include_router(venue_router, prefix=settings.API_V1_STR)
+
 
 app.include_router(booking_router, prefix=settings.API_V1_STR)
 app.include_router(payment_router, prefix=settings.API_V1_STR)

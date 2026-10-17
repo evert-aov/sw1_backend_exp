@@ -9,17 +9,16 @@ class CategoryRepository:
         self.db = db
 
     def get_by_id(self, category_id: int) -> Optional[Category]:
-        # Buscar categoría por ID
-        pass
+        return self.db.query(Category).filter(Category.id == category_id).first()
 
     def get_by_name(self, name: str) -> Optional[Category]:
-        # Buscar categoría por nombre
-        pass
+        return self.db.query(Category).filter(Category.name.ilike(name.strip())).first()
 
     def create(self, category: Category) -> Category:
-        # Crear nueva categoría temática
-        pass
+        self.db.add(category)
+        self.db.commit()
+        self.db.refresh(category)
+        return category
 
     def get_all(self) -> List[Category]:
-        # Listar todas las categorías disponibles
-        pass
+        return self.db.query(Category).order_by(Category.name.asc()).all()

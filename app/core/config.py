@@ -1,9 +1,11 @@
 import os
 from typing import List, Optional
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=True, extra="ignore")
+
     # Configuración general del proyecto
     PROJECT_NAME: str = "EXPERIENCIA API"
     VERSION: str = "1.0.0"
@@ -15,7 +17,7 @@ class Settings(BaseSettings):
     DB_USER: str = os.getenv("DB_USER", "evert")
     DB_PASS: str = os.getenv("DB_PASS", "nakroth")
     DB_NAME: str = os.getenv("DB_NAME", "experiencia_db")
-    DB_SYNCHRONIZE: bool = os.getenv("DB_SYNCHRONIZE", "true").lower() in ("true", "1", "t")
+    DB_SYNCHRONIZE: bool = os.getenv("DB_SYNCHRONIZE", "false").lower() in ("true", "1", "t")
     DB_LOGGING: bool = os.getenv("DB_LOGGING", "false").lower() in ("true", "1", "t")
 
     # Seguridad JWT
@@ -29,6 +31,9 @@ class Settings(BaseSettings):
     # Pasarela de pagos Stripe
     STRIPE_SECRET_KEY: str = os.getenv("STRIPE_SECRET_KEY", "sk_test_placeholder")
     STRIPE_WEBHOOK_SECRET: str = os.getenv("STRIPE_WEBHOOK_SECRET", "whsec_placeholder")
+
+    # Comisión de la plataforma por defecto
+    PLATFORM_FEE_PERCENTAGE: float = float(os.getenv("PLATFORM_FEE_PERCENTAGE", 10.0))
 
     # URL de conexión directa opcional (ideal para Neon Tech, AWS RDS, Render)
     DATABASE_URL: Optional[str] = os.getenv("DATABASE_URL")
@@ -68,11 +73,7 @@ class Settings(BaseSettings):
         try:
             return int(val)
         except ValueError:
-            return 60 * 24  # Por defecto 24 horas
-
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+            return 60 * 24
 
 
 settings = Settings()
