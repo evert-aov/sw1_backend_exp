@@ -1,8 +1,8 @@
 from datetime import datetime, timezone
 import enum
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Enum
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Enum, UUID
 from sqlalchemy.orm import relationship
-from app.core.database import Base
+from app.core.database import Base, generate_uuid
 
 
 class SubscriptionStatusEnum(str, enum.Enum):
@@ -15,9 +15,9 @@ class SubscriptionStatusEnum(str, enum.Enum):
 class SaaSSubscription(Base):
     __tablename__ = "saas_subscriptions"
 
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    plan_id = Column(Integer, ForeignKey("saas_plans.id"), nullable=False)
+    id = Column(UUID(as_uuid=False), primary_key=True, default=generate_uuid, index=True)
+    user_id = Column(UUID(as_uuid=False), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    plan_id = Column(UUID(as_uuid=False), ForeignKey("saas_plans.id"), nullable=False)
 
     stripe_subscription_id = Column(String(100), unique=True, nullable=True, index=True)
     status = Column(Enum(SubscriptionStatusEnum), default=SubscriptionStatusEnum.ACTIVE, nullable=False)

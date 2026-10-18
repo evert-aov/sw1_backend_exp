@@ -14,7 +14,7 @@ class BookingCreateDTO(BaseModel):
 
     model_config = ConfigDict(str_strip_whitespace=True)
 
-    experience_id: int = Field(..., ge=1, description="ID de la experiencia a reservar")
+    experience_id: str = Field(..., description="ID de la experiencia a reservar")
     quantity: int = Field(default=1, ge=1, le=20, description="Cantidad de cupos a adquirir")
 
 
@@ -25,7 +25,7 @@ class TicketDTO(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: int = Field(..., description="ID único del ticket")
+    id: str = Field(..., description="ID único del ticket")
     ticket_code: str = Field(..., description="Código alfanumérico único de validación")
     qr_payload: str = Field(..., description="Payload firmado para renderizar el código QR")
     is_used: bool = Field(default=False, description="Indica si el ticket ya fue escaneado en puerta")
@@ -39,9 +39,9 @@ class BookingResponseDTO(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: int = Field(..., description="ID único de la reserva")
-    user_id: int = Field(..., description="ID del asistente titular de la reserva")
-    experience_id: int = Field(..., description="ID de la experiencia reservada")
+    id: str = Field(..., description="ID único de la reserva")
+    user_id: str = Field(..., description="ID del asistente titular de la reserva")
+    experience_id: str = Field(..., description="ID de la experiencia reservada")
     quantity: int = Field(..., description="Cantidad de entradas reservadas")
     total_amount: float = Field(..., description="Monto total abonado")
     platform_fee: float = Field(..., description="Comisión retenida por la plataforma")
@@ -61,7 +61,7 @@ class CheckoutSessionDTO(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    booking_id: int = Field(..., description="ID de la reserva vinculada al pago")
+    booking_id: str = Field(..., description="ID de la reserva vinculada al pago")
     checkout_url: str = Field(..., description="URL de redirección hacia la pasarela Stripe Checkout")
     stripe_session_id: str = Field(..., description="ID de sesión generado por Stripe")
 
@@ -82,7 +82,7 @@ class SaaSPlanDTO(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: int = Field(..., description="ID del plan SaaS")
+    id: str = Field(..., description="ID del plan SaaS")
     name: str = Field(..., description="Nombre comercial del plan")
     monthly_price: float = Field(..., description="Precio mensual recurrente")
     features_included: dict[str, Any] = Field(
@@ -98,7 +98,7 @@ class SubscriptionCreateDTO(BaseModel):
     Contrato de entrada para suscribirse a un plan SaaS Pro (CU-14).
     """
 
-    plan_id: int = Field(..., ge=1, description="ID del plan SaaS a contratar")
+    plan_id: str = Field(..., description="ID del plan SaaS a contratar")
 
 
 class SubscriptionResponseDTO(BaseModel):
@@ -108,9 +108,9 @@ class SubscriptionResponseDTO(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: int = Field(..., description="ID único de la suscripción")
-    user_id: int = Field(..., description="ID del usuario suscrito")
-    plan_id: int = Field(..., description="ID del plan contratado")
+    id: str = Field(..., description="ID único de la suscripción")
+    user_id: str = Field(..., description="ID del usuario suscrito")
+    plan_id: str = Field(..., description="ID del plan contratado")
     stripe_subscription_id: str | None = Field(default=None, description="ID de suscripción en Stripe")
     status: SubscriptionStatusEnum = Field(..., description="Estado de la suscripción")
     current_period_start: datetime = Field(..., description="Inicio del ciclo de facturación actual")

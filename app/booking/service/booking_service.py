@@ -16,15 +16,15 @@ class BookingService:
         # Calcular porcentaje de comisión escalonada de plataforma
         pass
 
-    def create_booking(self, user_id: int, dto: BookingCreateDTO) -> BookingResponseDTO:
+    def create_booking(self, user_id: str, dto: BookingCreateDTO) -> BookingResponseDTO:
         # Iniciar reserva de cupo con bloqueo temporal
         pass
 
-    def confirm_booking(self, booking_id: int) -> BookingResponseDTO:
+    def confirm_booking(self, booking_id: str) -> BookingResponseDTO:
         # Confirmar reserva tras pago exitoso y generar tickets con QR
         pass
 
-    def get_user_bookings(self, user_id: int) -> List[BookingResponseDTO]:
+    def get_user_bookings(self, user_id: str) -> List[BookingResponseDTO]:
         # Consultar historial de reservas y tickets de un asistente
         pass
 

@@ -9,11 +9,11 @@ class MatchingRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def get_by_id(self, group_id: int) -> Optional[MatchingGroup]:
+    def get_by_id(self, group_id: str) -> Optional[MatchingGroup]:
         # Buscar grupo por ID
         pass
 
-    def get_by_experience(self, experience_id: int) -> Optional[MatchingGroup]:
+    def get_by_experience(self, experience_id: str) -> Optional[MatchingGroup]:
         # Obtener grupo activo de una experiencia
         pass
 
@@ -25,10 +25,10 @@ class MatchingRepository:
         # Agregar asistente al grupo de matching
         pass
 
-    def get_members(self, group_id: int) -> List[MatchingMember]:
+    def get_members(self, group_id: str) -> List[MatchingMember]:
         # Listar miembros postulados
         pass
 
-    def update_status(self, group_id: int, status: MatchingGroupStatusEnum) -> Optional[MatchingGroup]:
+    def update_status(self, group_id: str, status: MatchingGroupStatusEnum) -> Optional[MatchingGroup]:
         # Actualizar estado de quórum (REACHED, EXPIRED)
         pass

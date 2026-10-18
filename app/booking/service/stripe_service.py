@@ -11,7 +11,7 @@ class StripeService:
     def __init__(self, db: Session):
         self.db = db
 
-    def create_checkout_session(self, booking_id: int) -> CheckoutSessionDTO:
+    def create_checkout_session(self, booking_id: str) -> CheckoutSessionDTO:
         # Generar sesión de pago en pasarela Stripe
         pass
 
@@ -19,10 +19,10 @@ class StripeService:
         # Procesar eventos asíncronos de webhook (checkout.session.completed)
         pass
 
-    def create_saas_subscription(self, user_id: int, plan_id: int) -> SubscriptionResponseDTO:
+    def create_saas_subscription(self, user_id: str, plan_id: str) -> SubscriptionResponseDTO:
         # Contratar suscripción a Plan Pro
         pass
 
-    def cancel_saas_subscription(self, subscription_id: int) -> SubscriptionResponseDTO:
+    def cancel_saas_subscription(self, subscription_id: str) -> SubscriptionResponseDTO:
         # Cancelar suscripción recurrente
         pass

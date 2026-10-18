@@ -227,14 +227,13 @@ def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    try:
-        user_id = int(user_id_str)
-    except ValueError as exc:
+    user_id = str(user_id_str).strip()
+    if not user_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Identificador de usuario no es numérico",
+            detail="Identificador de usuario inválido en el token",
             headers={"WWW-Authenticate": "Bearer"},
-        ) from exc
+        )
 
     user_repo = UserRepository(db)
     user = user_repo.get_by_id(user_id)

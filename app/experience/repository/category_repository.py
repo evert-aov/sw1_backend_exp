@@ -19,17 +19,17 @@ class CategoryRepository:
         """
         self.db = db
 
-    def get_by_id(self, category_id: int) -> Category | None:
+    def get_by_id(self, category_id: str) -> Category | None:
         """
-        Busca una categoría por su identificador único.
+        Busca una categoría por su identificador único (UUID).
 
         Args:
-            category_id (int): ID numérico de la categoría.
+            category_id (str): ID (UUID) de la categoría.
 
         Returns:
             Category | None: Entidad `Category` encontrada o `None`.
         """
-        return self.db.query(Category).filter(Category.id == category_id).first()
+        return self.db.query(Category).filter(Category.id == str(category_id)).first()
 
     def get_by_name(self, name: str) -> Category | None:
         """

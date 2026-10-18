@@ -1,14 +1,14 @@
 from datetime import datetime, timezone
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, JSON
+from sqlalchemy import Column, String, Boolean, DateTime, Text, JSON, UUID
 from sqlalchemy.orm import relationship
-from app.core.database import Base
+from app.core.database import Base, generate_uuid
 
 
 # Entidad Usuario: almacena datos de cuenta, autenticación y perfil (CU-01, CU-02)
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(UUID(as_uuid=False), primary_key=True, default=generate_uuid, index=True)
     first_name = Column(String(100), nullable=False)
     last_name = Column(String(100), nullable=True)
     email = Column(String(150), unique=True, index=True, nullable=False)

@@ -48,12 +48,12 @@ class ProfileService:
             created_at=user.created_at,
         )
 
-    def get_profile(self, user_id: int) -> ProfileDTO:
+    def get_profile(self, user_id: str) -> ProfileDTO:
         """
         Obtiene la información completa del perfil, biografía, avatar e intereses de un usuario (CU-03).
 
         Args:
-            user_id (int): Identificador único del usuario a consultar.
+            user_id (str): Identificador único (UUID) del usuario a consultar.
 
         Returns:
             ProfileDTO: Datos del perfil del usuario.
@@ -69,13 +69,13 @@ class ProfileService:
             )
         return self._to_profile_dto(user)
 
-    def update_profile(self, user_id: int, dto: ProfileUpdateDTO) -> ProfileDTO:
+    def update_profile(self, user_id: str, dto: ProfileUpdateDTO) -> ProfileDTO:
         """
         Actualiza los datos personales, fotografía de perfil, biografía y etiquetas de intereses
         del usuario autenticado (CU-03 / HU-03).
 
         Args:
-            user_id (int): ID del usuario propietario del perfil.
+            user_id (str): ID (UUID) del usuario propietario del perfil.
             dto (ProfileUpdateDTO): Campos del perfil y preferencias a actualizar.
 
         Returns:
@@ -113,12 +113,12 @@ class ProfileService:
         updated_user = self.user_repo.update(user)
         return self._to_profile_dto(updated_user)
 
-    def update_preferences(self, user_id: int, dto: PreferencesUpdateDTO) -> ProfileDTO:
+    def update_preferences(self, user_id: str, dto: PreferencesUpdateDTO) -> ProfileDTO:
         """
         Actualiza específicamente las etiquetas de intereses temáticos, biografía y avatar del usuario (CU-03).
 
         Args:
-            user_id (int): ID del usuario autenticado.
+            user_id (str): ID (UUID) del usuario autenticado.
             dto (PreferencesUpdateDTO): Nuevas preferencias temáticas.
 
         Returns:

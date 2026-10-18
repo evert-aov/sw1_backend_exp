@@ -47,14 +47,14 @@ def list_venues(
     response_description="Detalle del establecimiento físico",
 )
 def get_venue(
-    venue_id: int,
+    venue_id: str,
     db: Annotated[Session, Depends(get_db)],
 ) -> VenueDTO:
     """
-    Obtiene los detalles de un establecimiento físico por su identificador único.
+    Obtiene los detalles de un establecimiento físico por su identificador único (UUID).
 
     Args:
-        venue_id (int): ID del establecimiento.
+        venue_id (str): ID del establecimiento.
         db (Session): Sesión de base de datos inyectada.
 
     Returns:

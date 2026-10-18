@@ -25,6 +25,6 @@ def record_gdpr_consent(dto: ConsentDTO, db: Session = Depends(get_db)):
 
 
 @live_router.websocket("/ws/{session_id}")
-async def live_stream_websocket(websocket: WebSocket, session_id: int):
+async def live_stream_websocket(websocket: WebSocket, session_id: str):
     # Firma de endpoint WebSocket para ingesta de frames y broadcast de métricas
     pass

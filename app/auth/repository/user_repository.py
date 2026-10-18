@@ -21,17 +21,17 @@ class UserRepository:
         """
         self.db = db
 
-    def get_by_id(self, user_id: int) -> User | None:
+    def get_by_id(self, user_id: str) -> User | None:
         """
-        Recupera un usuario por su identificador único.
+        Recupera un usuario por su identificador único UUID.
 
         Args:
-            user_id (int): ID numérico del usuario.
+            user_id (str): ID (UUID) del usuario.
 
         Returns:
             User | None: Entidad `User` si existe, o `None`.
         """
-        return self.db.query(User).filter(User.id == user_id).first()
+        return self.db.query(User).filter(User.id == str(user_id)).first()
 
     def get_by_email(self, email: str) -> User | None:
         """
@@ -74,37 +74,37 @@ class UserRepository:
         self.db.refresh(user)
         return user
 
-    def assign_role(self, user_id: int, role_id: int) -> UserRole:
+    def assign_role(self, user_id: str, role_id: str) -> UserRole:
         """
         Asigna un rol a un usuario en la tabla intermedia `user_roles` evitando duplicados.
 
         Args:
-            user_id (int): ID del usuario.
-            role_id (int): ID del rol a vincular.
+            user_id (str): ID del usuario.
+            role_id (str): ID del rol a vincular.
 
         Returns:
             UserRole: Vínculo `UserRole` existente o recién creado.
         """
         existing = (
             self.db.query(UserRole)
-            .filter(UserRole.user_id == user_id, UserRole.role_id == role_id)
+            .filter(UserRole.user_id == str(user_id), UserRole.role_id == str(role_id))
             .first()
         )
         if existing:
             return existing
 
-        user_role = UserRole(user_id=user_id, role_id=role_id)
+        user_role = UserRole(user_id=str(user_id), role_id=str(role_id))
         self.db.add(user_role)
         self.db.commit()
         self.db.refresh(user_role)
         return user_role
 
-    def get_user_roles(self, user_id: int) -> list[str]:
+    def get_user_roles(self, user_id: str) -> list[str]:
         """
         Obtiene la lista de nombres de roles asignados a un usuario específico.
 
         Args:
-            user_id (int): ID del usuario a consultar.
+            user_id (str): ID del usuario a consultar.
 
         Returns:
             list[str]: Lista de nombres de roles (ej. `["HOST"]`).
@@ -112,7 +112,7 @@ class UserRepository:
         roles = (
             self.db.query(Role.name)
             .join(UserRole, Role.id == UserRole.role_id)
-            .filter(UserRole.user_id == user_id)
+            .filter(UserRole.user_id == str(user_id))
             .all()
         )
         return [r[0] for r in roles]

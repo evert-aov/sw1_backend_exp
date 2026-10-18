@@ -12,7 +12,7 @@ class CategoryDTO(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: int = Field(..., description="Identificador único de la categoría")
+    id: str = Field(..., description="Identificador único de la categoría (UUID)")
     name: str = Field(..., description="Nombre de la categoría temática")
     description: str | None = Field(default=None, description="Descripción de la categoría")
     icon_name: str | None = Field(default=None, description="Identificador de ícono para UI web y móvil")
@@ -46,8 +46,8 @@ class VenueDTO(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: int = Field(..., description="Identificador único del establecimiento")
-    owner_id: int | None = Field(default=None, description="ID del usuario propietario (rol VENUE)")
+    id: str = Field(..., description="Identificador único del establecimiento (UUID)")
+    owner_id: str | None = Field(default=None, description="ID del usuario propietario (rol VENUE)")
     name: str = Field(..., description="Nombre comercial del establecimiento")
     address: str | None = Field(default=None, description="Dirección física del local")
     city: str = Field(..., description="Ciudad donde se ubica el establecimiento")
@@ -109,11 +109,10 @@ class ExperienceCreateDTO(BaseModel):
         },
     )
 
-    category_id: int = Field(..., ge=1, description="ID de la categoría temática")
-    venue_id: int | None = Field(
+    category_id: str = Field(..., min_length=1, description="ID (UUID) de la categoría temática")
+    venue_id: str | None = Field(
         default=None,
-        ge=1,
-        description="ID del establecimiento físico (requerido en modalidades IN_PERSON e HYBRID)",
+        description="ID (UUID) del establecimiento físico (requerido en modalidades IN_PERSON e HYBRID)",
     )
     title: str = Field(..., min_length=3, max_length=200, description="Título comercial de la experiencia")
     description: str = Field(..., min_length=10, description="Descripción detallada de la actividad")
@@ -173,7 +172,7 @@ class ExperienceUpdateDTO(BaseModel):
     description: str | None = Field(default=None, min_length=10, description="Descripción actualizada")
     cover_image_url: str | None = Field(default=None, max_length=255, description="URL de imagen de portada")
     modality: ModalityEnum | None = Field(default=None, description="Modalidad actualizada")
-    venue_id: int | None = Field(default=None, ge=1, description="ID del establecimiento físico")
+    venue_id: str | None = Field(default=None, description="ID (UUID) del establecimiento físico")
     price: float | None = Field(
         default=None,
         ge=0.0,
@@ -204,7 +203,7 @@ class ExperienceFilterDTO(BaseModel):
 
     model_config = ConfigDict(str_strip_whitespace=True)
 
-    category_id: int | None = Field(default=None, description="Filtrar por ID de categoría temática")
+    category_id: str | None = Field(default=None, description="Filtrar por ID de categoría temática (UUID)")
     modality: ModalityEnum | None = Field(
         default=None,
         description="Filtrar por modalidad: IN_PERSON, VIRTUAL o HYBRID",
@@ -251,10 +250,10 @@ class ExperienceResponseDTO(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: int = Field(..., description="ID único de la experiencia")
-    host_id: int = Field(..., description="ID del usuario anfitrión")
-    category_id: int = Field(..., description="ID de la categoría temática")
-    venue_id: int | None = Field(default=None, description="ID del establecimiento físico asociado")
+    id: str = Field(..., description="ID único de la experiencia (UUID)")
+    host_id: str = Field(..., description="ID del usuario anfitrión (UUID)")
+    category_id: str = Field(..., description="ID de la categoría temática (UUID)")
+    venue_id: str | None = Field(default=None, description="ID del establecimiento físico asociado (UUID)")
 
     category_name: str | None = Field(default=None, description="Nombre de la categoría")
     venue_name: str | None = Field(default=None, description="Nombre del establecimiento físico")

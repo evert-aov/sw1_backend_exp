@@ -85,14 +85,14 @@ class ExperienceService:
             user_longitude=user_longitude,
         )
 
-    def create_experience(self, host_id: int, dto: ExperienceCreateDTO) -> ExperienceResponseDTO:
+    def create_experience(self, host_id: str, dto: ExperienceCreateDTO) -> ExperienceResponseDTO:
         """
         Publica una nueva experiencia validando existencia de categoría, coherencia de aforos
         (`min_capacity` vs `max_capacity`), fecha futura, capacidad máxima del local físico y ausencia
         de cruce de horarios en el mismo establecimiento (CU-04 / HU-04, HU-07).
 
         Args:
-            host_id (int): ID del usuario anfitrión o establecimiento que publica el evento.
+            host_id (str): ID del usuario anfitrión o establecimiento que publica el evento (UUID).
             dto (ExperienceCreateDTO): Datos de configuración del evento, aforos y precio.
 
         Returns:
@@ -164,8 +164,8 @@ class ExperienceService:
 
     def update_experience(
         self,
-        experience_id: int,
-        host_id: int,
+        experience_id: str,
+        host_id: str,
         dto: ExperienceUpdateDTO,
     ) -> ExperienceResponseDTO:
         """
@@ -173,8 +173,8 @@ class ExperienceService:
         propiedad del anfitrión, bloqueo de precio si ya existen reservas y no solapamiento de local (CU-04).
 
         Args:
-            experience_id (int): ID de la experiencia a modificar.
-            host_id (int): ID del usuario autenticado que solicita la modificación.
+            experience_id (str): ID de la experiencia a modificar (UUID).
+            host_id (str): ID del usuario autenticado que solicita la modificación (UUID).
             dto (ExperienceUpdateDTO): Campos a actualizar.
 
         Returns:
@@ -307,13 +307,13 @@ class ExperienceService:
         loaded = self.experience_repo.get_by_id(updated.id)
         return self._to_response_dto(loaded or updated)
 
-    def cancel_experience(self, experience_id: int, host_id: int) -> ExperienceResponseDTO:
+    def cancel_experience(self, experience_id: str, host_id: str) -> ExperienceResponseDTO:
         """
         Cancela una experiencia publicada cambiando su estado a `CANCELLED` (CU-04).
 
         Args:
-            experience_id (int): ID de la experiencia a cancelar.
-            host_id (int): ID del anfitrión propietario.
+            experience_id (str): ID de la experiencia a cancelar (UUID).
+            host_id (str): ID del anfitrión propietario (UUID).
 
         Returns:
             ExperienceResponseDTO: Experiencia con estado `CANCELLED`.
@@ -347,14 +347,14 @@ class ExperienceService:
 
     def get_my_hosted_experiences(
         self,
-        host_id: int,
+        host_id: str,
         status: ExperienceStatusEnum | None = None,
     ) -> list[ExperienceResponseDTO]:
         """
         Obtiene todas las experiencias publicadas por el anfitrión autenticado (CU-04).
 
         Args:
-            host_id (int): ID del anfitrión autenticado.
+            host_id (str): ID del anfitrión autenticado (UUID).
             status (ExperienceStatusEnum | None): Filtro opcional por estado del evento.
 
         Returns:
@@ -363,12 +363,12 @@ class ExperienceService:
         experiences = self.experience_repo.get_by_host(host_id, status)
         return [self._to_response_dto(e) for e in experiences]
 
-    def get_experience_by_id(self, experience_id: int) -> ExperienceResponseDTO:
+    def get_experience_by_id(self, experience_id: str) -> ExperienceResponseDTO:
         """
         Consulta el detalle público de una experiencia por su ID (CU-04, CU-05).
 
         Args:
-            experience_id (int): ID de la experiencia a consultar.
+            experience_id (str): ID de la experiencia a consultar (UUID).
 
         Returns:
             ExperienceResponseDTO: Detalle completo de la experiencia.

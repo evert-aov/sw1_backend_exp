@@ -197,7 +197,7 @@ class AuthService:
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-        user = self.user_repo.get_by_id(int(user_id_str))
+        user = self.user_repo.get_by_id(str(user_id_str))
         if not user or not user.is_active:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,

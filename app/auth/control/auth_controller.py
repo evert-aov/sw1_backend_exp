@@ -267,11 +267,11 @@ def update_current_user_preferences(
     response_model=ProfileDTO,
     status_code=status.HTTP_200_OK,
     summary="Consultar información de un perfil por su ID (CU-03)",
-    description="Obtiene el perfil público y preferencias de un usuario específico mediante su ID numérico.",
+    description="Obtiene el perfil público y preferencias de un usuario específico mediante su ID (UUID).",
     response_description="Perfil del usuario solicitado",
 )
 def get_user_by_id(
-    user_id: int,
+    user_id: str,
     current_user: Annotated[User, Depends(get_current_active_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> ProfileDTO:
@@ -279,7 +279,7 @@ def get_user_by_id(
     Consulta el perfil de un usuario específico por su identificador único (CU-03).
 
     Args:
-        user_id (int): ID del usuario a consultar.
+        user_id (str): ID (UUID) del usuario a consultar.
         current_user (User): Usuario autenticado que realiza la consulta.
         db (Session): Sesión de base de datos inyectada.
 

@@ -11,13 +11,13 @@ class VenueMapper:
     """
 
     @staticmethod
-    def to_entity(dto: VenueCreateDTO, owner_id: int) -> Venue:
+    def to_entity(dto: VenueCreateDTO, owner_id: str | None) -> Venue:
         """
         Convierte un `VenueCreateDTO` en una entidad relacional `Venue` con valores normalizados.
 
         Args:
             dto (VenueCreateDTO): Datos del establecimiento a registrar.
-            owner_id (int): ID del usuario propietario que registra el local.
+            owner_id (str | None): ID del usuario propietario que registra el local.
 
         Returns:
             Venue: Instancia ORM `Venue` lista para persistir.

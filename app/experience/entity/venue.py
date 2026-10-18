@@ -1,15 +1,15 @@
 from datetime import datetime, timezone
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime, UUID
 from sqlalchemy.orm import relationship
-from app.core.database import Base
+from app.core.database import Base, generate_uuid
 
 
 # Entidad Establecimiento / Venue: locales comerciales físicos donde se realizan eventos
 class Venue(Base):
     __tablename__ = "venues"
 
-    id = Column(Integer, primary_key=True, index=True)
-    owner_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    id = Column(UUID(as_uuid=False), primary_key=True, default=generate_uuid, index=True)
+    owner_id = Column(UUID(as_uuid=False), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     name = Column(String(150), nullable=False, index=True)
     address = Column(String(255), nullable=True)
     city = Column(String(100), default="Santa Cruz de la Sierra")

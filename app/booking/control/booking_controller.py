@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Annotated
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
+from app.auth.entity.user import User
 from app.booking.dto.booking_dto import (
     BookingCreateDTO,
     BookingResponseDTO,
@@ -10,6 +11,7 @@ from app.booking.dto.booking_dto import (
 )
 from app.booking.service.booking_service import BookingService
 from app.core.database import get_db
+from app.core.security import get_current_active_user
 
 booking_router = APIRouter(prefix="/bookings", tags=["Booking Controller (CU-06)"])
 
@@ -24,6 +26,7 @@ booking_router = APIRouter(prefix="/bookings", tags=["Booking Controller (CU-06)
 def create_booking(
     dto: BookingCreateDTO,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_active_user)],
 ) -> BookingResponseDTO:
     """
     Inicia la reserva de cupos para una experiencia publicada (Sprint 2 - CU-06).
@@ -31,12 +34,13 @@ def create_booking(
     Args:
         dto (BookingCreateDTO): ID de la experiencia y cantidad de entradas.
         db (Session): Sesión activa de base de datos.
+        current_user (User): Usuario autenticado en sesión.
 
     Returns:
         BookingResponseDTO: Reserva registrada.
     """
     service = BookingService(db)
-    return service.create_booking(user_id=1, dto=dto)
+    return service.create_booking(user_id=current_user.id, dto=dto)
 
 
 @booking_router.get(
@@ -48,18 +52,20 @@ def create_booking(
 )
 def get_my_tickets(
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_active_user)],
 ) -> list[BookingResponseDTO]:
     """
     Obtiene el historial de reservas y comprobantes QR del usuario (Sprint 2 - HU-12).
 
     Args:
         db (Session): Sesión activa de base de datos.
+        current_user (User): Usuario autenticado en sesión.
 
     Returns:
         list[BookingResponseDTO]: Lista de reservas y tickets asociados.
     """
     service = BookingService(db)
-    return service.get_user_bookings(user_id=1)
+    return service.get_user_bookings(user_id=current_user.id)
 
 
 @booking_router.get(

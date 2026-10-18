@@ -49,20 +49,20 @@ def run_seeder(clean: bool = False) -> None:
             )
             role_names = [r[0] for r in roles]
             print(
-                f"  • ID: {u.id:<2} | Email: {u.email:<35} | "
+                f"  • ID: {u.id} | Email: {u.email:<35} | "
                 f"Nombre: {u.first_name} {u.last_name or '':<16} | Roles: {role_names}"
             )
 
         print("\n[Seeder] 2. Categorías temáticas registradas (CU-04, CU-05):")
         categories = db.query(Category).order_by(Category.id.asc()).all()
         for c in categories:
-            print(f"  • ID: {c.id:<2} | Categoría: {c.name:<25} | Ícono: {c.icon_name}")
+            print(f"  • ID: {c.id} | Categoría: {c.name:<25} | Ícono: {c.icon_name}")
 
         print("\n[Seeder] 3. Establecimientos físicos geolocalizados (CU-04, CU-05):")
         venues = db.query(Venue).order_by(Venue.id.asc()).all()
         for v in venues:
             print(
-                f"  • ID: {v.id:<2} | Local: {v.name:<30} | Zona: {v.zone or '-':<12} | "
+                f"  • ID: {v.id} | Local: {v.name:<30} | Zona: {v.zone or '-':<12} | "
                 f"GPS: ({v.latitude}, {v.longitude}) | Aforo máx: {v.max_capacity}"
             )
 
@@ -70,7 +70,7 @@ def run_seeder(clean: bool = False) -> None:
         experiences = db.query(Experience).order_by(Experience.id.asc()).all()
         for e in experiences:
             print(
-                f"  • ID: {e.id:<2} | [{e.modality.value:<9}] [{e.status.value:<9}] "
+                f"  • ID: {e.id} | [{e.modality.value:<9}] [{e.status.value:<9}] "
                 f"Bs/$ {e.price:<6.1f} | Cupos: {e.reserved_slots}/{e.max_capacity} (Quórum: {e.min_capacity}) | {e.title}"
             )
     finally:

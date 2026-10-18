@@ -48,13 +48,13 @@ class ExperienceMapper:
         return round(r_earth_km * c, 2)
 
     @staticmethod
-    def to_entity(dto: ExperienceCreateDTO, host_id: int) -> Experience:
+    def to_entity(dto: ExperienceCreateDTO, host_id: str) -> Experience:
         """
         Convierte un `ExperienceCreateDTO` en una entidad relacional `Experience` con valores iniciales.
 
         Args:
             dto (ExperienceCreateDTO): Datos de creación del evento.
-            host_id (int): ID del usuario anfitrión creador.
+            host_id (str): ID (UUID) del usuario anfitrión creador.
 
         Returns:
             Experience: Entidad ORM inicializada en estado `OPEN`.

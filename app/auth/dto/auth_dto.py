@@ -88,7 +88,7 @@ class TokenResponseDTO(BaseModel):
 
     access_token: str = Field(..., description="Token JWT firmado digitalmente (HS256)")
     token_type: str = Field(default="bearer", description="Esquema de autenticación HTTP")
-    user_id: int = Field(..., description="Identificador único del usuario autenticado")
+    user_id: str = Field(..., description="Identificador único del usuario autenticado (UUID)")
     email: EmailStr = Field(..., description="Correo electrónico del usuario autenticado")
     roles: list[str] = Field(
         default_factory=list,
@@ -108,7 +108,7 @@ class LogoutResponseDTO(BaseModel):
         default="Sesión cerrada correctamente. El token JWT ha sido revocado.",
         description="Mensaje descriptivo de confirmación de logout",
     )
-    user_id: int = Field(..., description="ID del usuario que cerró sesión")
+    user_id: str = Field(..., description="ID del usuario que cerró sesión (UUID)")
     email: EmailStr = Field(..., description="Correo del usuario que cerró sesión")
     logged_out_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
@@ -169,7 +169,7 @@ class ProfileDTO(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: int = Field(..., description="Identificador único del usuario")
+    id: str = Field(..., description="Identificador único del usuario (UUID)")
     first_name: str = Field(..., description="Nombres del usuario")
     last_name: str | None = Field(default=None, description="Apellidos del usuario")
     email: EmailStr = Field(..., description="Correo electrónico de la cuenta")

@@ -1,8 +1,8 @@
 from datetime import datetime, timezone
 import enum
-from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, Enum
+from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, Enum, UUID
 from sqlalchemy.orm import relationship
-from app.core.database import Base
+from app.core.database import Base, generate_uuid
 
 
 class SuggestionTypeEnum(str, enum.Enum):
@@ -15,8 +15,8 @@ class SuggestionTypeEnum(str, enum.Enum):
 class LiveSuggestion(Base):
     __tablename__ = "live_suggestions"
 
-    id = Column(Integer, primary_key=True, index=True)
-    live_session_id = Column(Integer, ForeignKey("live_sessions.id", ondelete="CASCADE"), nullable=False)
+    id = Column(UUID(as_uuid=False), primary_key=True, default=generate_uuid, index=True)
+    live_session_id = Column(UUID(as_uuid=False), ForeignKey("live_sessions.id", ondelete="CASCADE"), nullable=False)
 
     suggestion_type = Column(Enum(SuggestionTypeEnum), nullable=False)
     suggestion_text = Column(Text, nullable=False)

@@ -19,17 +19,17 @@ class RoleRepository:
         """
         self.db = db
 
-    def get_by_id(self, role_id: int) -> Role | None:
+    def get_by_id(self, role_id: str) -> Role | None:
         """
-        Busca un rol por su clave primaria numérica.
+        Busca un rol por su clave primaria UUID.
 
         Args:
-            role_id (int): Identificador único del rol.
+            role_id (str): Identificador único del rol (UUID).
 
         Returns:
             Role | None: Entidad `Role` encontrada o `None` si no existe.
         """
-        return self.db.query(Role).filter(Role.id == role_id).first()
+        return self.db.query(Role).filter(Role.id == str(role_id)).first()
 
     def get_by_name(self, name: str) -> Role | None:
         """

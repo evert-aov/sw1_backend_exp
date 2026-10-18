@@ -19,17 +19,17 @@ class VenueRepository:
         """
         self.db = db
 
-    def get_by_id(self, venue_id: int) -> Venue | None:
+    def get_by_id(self, venue_id: str) -> Venue | None:
         """
-        Recupera un establecimiento físico por su identificador único.
+        Recupera un establecimiento físico por su identificador único (UUID).
 
         Args:
-            venue_id (int): ID numérico del establecimiento.
+            venue_id (str): ID (UUID) del establecimiento.
 
         Returns:
             Venue | None: Entidad `Venue` encontrada o `None`.
         """
-        return self.db.query(Venue).filter(Venue.id == venue_id).first()
+        return self.db.query(Venue).filter(Venue.id == str(venue_id)).first()
 
     def create(self, venue: Venue) -> Venue:
         """

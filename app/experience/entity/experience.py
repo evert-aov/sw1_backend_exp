@@ -1,8 +1,8 @@
 from datetime import datetime, timezone
 import enum
-from sqlalchemy import Column, Integer, String, Text, Float, DateTime, ForeignKey, Enum
+from sqlalchemy import Column, Integer, String, Text, Float, DateTime, ForeignKey, Enum, UUID
 from sqlalchemy.orm import relationship
-from app.core.database import Base
+from app.core.database import Base, generate_uuid
 
 
 # Modalidad de la experiencia
@@ -26,10 +26,10 @@ class ExperienceStatusEnum(str, enum.Enum):
 class Experience(Base):
     __tablename__ = "experiences"
 
-    id = Column(Integer, primary_key=True, index=True)
-    host_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    category_id = Column(Integer, ForeignKey("categories.id"), nullable=False)
-    venue_id = Column(Integer, ForeignKey("venues.id", ondelete="SET NULL"), nullable=True)
+    id = Column(UUID(as_uuid=False), primary_key=True, default=generate_uuid, index=True)
+    host_id = Column(UUID(as_uuid=False), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    category_id = Column(UUID(as_uuid=False), ForeignKey("categories.id"), nullable=False)
+    venue_id = Column(UUID(as_uuid=False), ForeignKey("venues.id", ondelete="SET NULL"), nullable=True)
 
     title = Column(String(200), nullable=False, index=True)
     description = Column(Text, nullable=False)

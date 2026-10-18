@@ -24,12 +24,12 @@ class ExperienceRepository:
         """
         self.db = db
 
-    def get_by_id(self, experience_id: int) -> Experience | None:
+    def get_by_id(self, experience_id: str) -> Experience | None:
         """
-        Obtiene una experiencia por su ID cargando sus relaciones `category`, `venue` y `host`.
+        Obtiene una experiencia por su ID (UUID) cargando sus relaciones `category`, `venue` y `host`.
 
         Args:
-            experience_id (int): ID único de la experiencia.
+            experience_id (str): ID único de la experiencia (UUID).
 
         Returns:
             Experience | None: Entidad `Experience` encontrada o `None`.
@@ -41,7 +41,7 @@ class ExperienceRepository:
                 joinedload(Experience.venue),
                 joinedload(Experience.host),
             )
-            .filter(Experience.id == experience_id)
+            .filter(Experience.id == str(experience_id))
             .first()
         )
 
@@ -178,22 +178,22 @@ class ExperienceRepository:
 
     def has_venue_overlap(
         self,
-        venue_id: int,
+        venue_id: str,
         start_time: datetime,
         duration_minutes: int,
         buffer_minutes: int = 0,
-        exclude_experience_id: int | None = None,
+        exclude_experience_id: str | None = None,
     ) -> bool:
         """
         Verifica si existe solapamiento de horario en un mismo establecimiento físico (`venue_id`)
         con otras experiencias activas (`OPEN`, `CONFIRMED`, `LIVE`).
 
         Args:
-            venue_id (int): ID del establecimiento físico a validar.
+            venue_id (str): ID del establecimiento físico a validar (UUID).
             start_time (datetime): Fecha y hora de inicio del evento propuesto.
             duration_minutes (int): Duración del evento en minutos.
             buffer_minutes (int): Margen adicional de tiempo entre eventos en minutos.
-            exclude_experience_id (int | None): ID de experiencia a excluir (útil en actualizaciones).
+            exclude_experience_id (str | None): ID de experiencia a excluir (útil en actualizaciones).
 
         Returns:
             bool: `True` si existe cruce de horarios en el local, `False` si el horario está libre.
@@ -212,7 +212,7 @@ class ExperienceRepository:
         query_end = new_end_utc.replace(tzinfo=None)
 
         query = self.db.query(Experience).filter(
-            Experience.venue_id == venue_id,
+            Experience.venue_id == str(venue_id),
             Experience.status.in_(
                 [
                     ExperienceStatusEnum.OPEN,
@@ -224,7 +224,7 @@ class ExperienceRepository:
             Experience.event_date <= query_end + timedelta(days=1),
         )
         if exclude_experience_id is not None:
-            query = query.filter(Experience.id != exclude_experience_id)
+            query = query.filter(Experience.id != str(exclude_experience_id))
 
         existing_events = query.all()
         for existing in existing_events:
@@ -239,14 +239,14 @@ class ExperienceRepository:
 
     def get_by_host(
         self,
-        host_id: int,
+        host_id: str,
         status: ExperienceStatusEnum | None = None,
     ) -> list[Experience]:
         """
         Lista todas las experiencias creadas por un anfitrión específico, con filtro opcional por estado.
 
         Args:
-            host_id (int): ID del usuario anfitrión.
+            host_id (str): ID del usuario anfitrión (UUID).
             status (ExperienceStatusEnum | None): Estado opcional para filtrar.
 
         Returns:

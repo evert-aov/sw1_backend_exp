@@ -3,7 +3,9 @@ from __future__ import annotations
 from typing import Annotated
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
+from app.auth.entity.user import User
 from app.core.database import get_db
+from app.core.security import get_current_active_user
 from app.matching.dto.matching_dto import (
     MatchingApplicationDTO,
     MatchingGroupResponseDTO,
@@ -23,6 +25,7 @@ matching_router = APIRouter(prefix="/matching", tags=["Matching Controller (CU-0
 def apply_to_matching_group(
     dto: MatchingApplicationDTO,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_active_user)],
 ) -> MatchingGroupResponseDTO:
     """
     Registra la postulación de un asistente a un grupo dinámico de matching (Sprint 2 - CU-07).
@@ -30,12 +33,13 @@ def apply_to_matching_group(
     Args:
         dto (MatchingApplicationDTO): ID de la experiencia objetivo.
         db (Session): Sesión activa de base de datos.
+        current_user (User): Usuario autenticado en sesión.
 
     Returns:
         MatchingGroupResponseDTO: Estado actualizado del grupo de matching y quórum.
     """
     service = MatchingAlgorithmService(db)
-    return service.apply_for_matching(user_id=1, dto=dto)
+    return service.apply_for_matching(user_id=current_user.id, dto=dto)
 
 
 @matching_router.get(
@@ -46,21 +50,23 @@ def apply_to_matching_group(
     description="Obtiene el progreso actual de participantes postulados frente al cupo mínimo requerido.",
 )
 def get_matching_group_status(
-    experience_id: int,
+    experience_id: str,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_active_user)],
 ) -> MatchingGroupResponseDTO:
     """
     Consulta el avance del quórum mínimo de un grupo de matching asociado a una experiencia (CU-07).
 
     Args:
-        experience_id (int): ID de la experiencia.
+        experience_id (str): ID de la experiencia.
         db (Session): Sesión activa de base de datos.
+        current_user (User): Usuario autenticado en sesión.
 
     Returns:
         MatchingGroupResponseDTO: Información del grupo de matching.
     """
     service = MatchingAlgorithmService(db)
     return service.apply_for_matching(
-        user_id=1,
+        user_id=current_user.id,
         dto=MatchingApplicationDTO(experience_id=experience_id),
     )

@@ -9,7 +9,7 @@ class BookingRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def get_by_id(self, booking_id: int) -> Optional[Booking]:
+    def get_by_id(self, booking_id: str) -> Optional[Booking]:
         # Buscar reserva por ID
         pass
 
@@ -17,11 +17,11 @@ class BookingRepository:
         # Registrar nueva reserva
         pass
 
-    def update_status(self, booking_id: int, status: BookingStatusEnum) -> Optional[Booking]:
+    def update_status(self, booking_id: str, status: BookingStatusEnum) -> Optional[Booking]:
         # Actualizar estado de la reserva (PAID, CANCELLED, REFUNDED)
         pass
 
-    def get_by_user(self, user_id: int) -> List[Booking]:
+    def get_by_user(self, user_id: str) -> List[Booking]:
         # Obtener historial de reservas de un asistente
         pass
 

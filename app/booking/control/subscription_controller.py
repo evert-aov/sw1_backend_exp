@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Annotated
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
+from app.auth.entity.user import User
 from app.booking.dto.booking_dto import (
     SaaSPlanDTO,
     SubscriptionCreateDTO,
@@ -10,6 +11,7 @@ from app.booking.dto.booking_dto import (
 )
 from app.booking.service.stripe_service import StripeService
 from app.core.database import get_db
+from app.core.security import get_current_active_user
 
 subscription_router = APIRouter(
     prefix="/subscriptions",
@@ -49,6 +51,7 @@ def list_plans(
 def subscribe_to_plan(
     dto: SubscriptionCreateDTO,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_active_user)],
 ) -> SubscriptionResponseDTO:
     """
     Registra la suscripción de un usuario a un plan SaaS Pro mediante Stripe Billing (CU-14).
@@ -56,9 +59,10 @@ def subscribe_to_plan(
     Args:
         dto (SubscriptionCreateDTO): Datos del plan seleccionado.
         db (Session): Sesión activa de base de datos.
+        current_user (User): Usuario autenticado en sesión.
 
     Returns:
         SubscriptionResponseDTO: Estado de la suscripción creada.
     """
     service = StripeService(db)
-    return service.create_saas_subscription(user_id=1, plan_id=dto.plan_id)
+    return service.create_saas_subscription(user_id=current_user.id, plan_id=dto.plan_id)

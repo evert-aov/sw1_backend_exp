@@ -1,8 +1,8 @@
 from datetime import datetime, timezone
 import enum
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Enum, JSON
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Enum, JSON, UUID
 from sqlalchemy.orm import relationship
-from app.core.database import Base
+from app.core.database import Base, generate_uuid
 
 
 class PaymentStatusEnum(str, enum.Enum):
@@ -15,8 +15,8 @@ class PaymentStatusEnum(str, enum.Enum):
 class Payment(Base):
     __tablename__ = "payments"
 
-    id = Column(Integer, primary_key=True, index=True)
-    booking_id = Column(Integer, ForeignKey("bookings.id", ondelete="CASCADE"), unique=True, nullable=False)
+    id = Column(UUID(as_uuid=False), primary_key=True, default=generate_uuid, index=True)
+    booking_id = Column(UUID(as_uuid=False), ForeignKey("bookings.id", ondelete="CASCADE"), unique=True, nullable=False)
 
     stripe_payment_intent_id = Column(String(100), unique=True, nullable=True, index=True)
     stripe_checkout_session_id = Column(String(100), nullable=True, index=True)

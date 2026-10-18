@@ -128,14 +128,14 @@ def get_my_hosted_experiences(
     response_description="Detalle completo de la experiencia",
 )
 def get_experience_detail(
-    experience_id: int,
+    experience_id: str,
     db: Annotated[Session, Depends(get_db)],
 ) -> ExperienceResponseDTO:
     """
-    Recupera el detalle completo de una experiencia específica por su ID numérico (CU-04, CU-05).
+    Recupera el detalle completo de una experiencia específica por su ID (UUID) (CU-04, CU-05).
 
     Args:
-        experience_id (int): Identificador único de la experiencia.
+        experience_id (str): Identificador único de la experiencia.
         db (Session): Sesión de base de datos inyectada.
 
     Returns:
@@ -157,7 +157,7 @@ def get_experience_detail(
     response_description="Experiencia actualizada",
 )
 def update_experience(
-    experience_id: int,
+    experience_id: str,
     dto: ExperienceUpdateDTO,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_active_user)],
@@ -166,7 +166,7 @@ def update_experience(
     Actualiza una experiencia existente perteneciente al anfitrión autenticado (CU-04).
 
     Args:
-        experience_id (int): ID de la experiencia a modificar.
+        experience_id (str): ID de la experiencia a modificar.
         dto (ExperienceUpdateDTO): Campos a actualizar.
         db (Session): Sesión de base de datos inyectada.
         current_user (User): Usuario autenticado propietario del evento.
@@ -187,7 +187,7 @@ def update_experience(
     response_description="Experiencia cancelada exitosamente",
 )
 def cancel_experience(
-    experience_id: int,
+    experience_id: str,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_active_user)],
 ) -> ExperienceResponseDTO:
@@ -195,7 +195,7 @@ def cancel_experience(
     Cancela una experiencia activa cambiando su estado a `CANCELLED` (CU-04).
 
     Args:
-        experience_id (int): ID de la experiencia a cancelar.
+        experience_id (str): ID de la experiencia a cancelar.
         db (Session): Sesión de base de datos inyectada.
         current_user (User): Usuario autenticado propietario del evento.
 

@@ -39,12 +39,12 @@ class VenueService:
             venues = self.venue_repo.get_all()
         return [VenueMapper.to_dto(v) for v in venues]
 
-    def get_venue_by_id(self, venue_id: int) -> VenueDTO:
+    def get_venue_by_id(self, venue_id: str) -> VenueDTO:
         """
-        Consulta el detalle de un establecimiento específico por su ID.
+        Consulta el detalle de un establecimiento específico por su ID (UUID).
 
         Args:
-            venue_id (int): ID único del establecimiento.
+            venue_id (str): ID único del establecimiento (UUID).
 
         Returns:
             VenueDTO: Datos del establecimiento.
@@ -60,12 +60,12 @@ class VenueService:
             )
         return VenueMapper.to_dto(venue)
 
-    def register_venue(self, owner_id: int, dto: VenueCreateDTO) -> VenueDTO:
+    def register_venue(self, owner_id: str | None, dto: VenueCreateDTO) -> VenueDTO:
         """
         Registra un nuevo establecimiento comercial asociado al usuario autenticado (`owner_id`).
 
         Args:
-            owner_id (int): ID del usuario propietario o anfitrión que registra el local.
+            owner_id (str | None): ID del usuario propietario o anfitrión que registra el local (UUID).
             dto (VenueCreateDTO): Datos físicos y coordenadas geográficas del establecimiento.
 
         Returns:

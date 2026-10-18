@@ -1,8 +1,8 @@
 from datetime import datetime, timezone
 import enum
-from sqlalchemy import Column, Integer, Float, DateTime, ForeignKey, Enum
+from sqlalchemy import Column, Integer, Float, DateTime, ForeignKey, Enum, UUID
 from sqlalchemy.orm import relationship
-from app.core.database import Base
+from app.core.database import Base, generate_uuid
 
 
 class BookingStatusEnum(str, enum.Enum):
@@ -16,9 +16,9 @@ class BookingStatusEnum(str, enum.Enum):
 class Booking(Base):
     __tablename__ = "bookings"
 
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    experience_id = Column(Integer, ForeignKey("experiences.id", ondelete="CASCADE"), nullable=False)
+    id = Column(UUID(as_uuid=False), primary_key=True, default=generate_uuid, index=True)
+    user_id = Column(UUID(as_uuid=False), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    experience_id = Column(UUID(as_uuid=False), ForeignKey("experiences.id", ondelete="CASCADE"), nullable=False)
 
     quantity = Column(Integer, default=1, nullable=False)
     total_amount = Column(Float, nullable=False)

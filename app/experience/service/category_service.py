@@ -32,12 +32,12 @@ class CategoryService:
         categories = self.category_repo.get_all()
         return [CategoryMapper.to_dto(c) for c in categories]
 
-    def get_category_by_id(self, category_id: int) -> CategoryDTO:
+    def get_category_by_id(self, category_id: str) -> CategoryDTO:
         """
-        Consulta el detalle de una categoría temática por su identificador único.
+        Consulta el detalle de una categoría temática por su identificador único (UUID).
 
         Args:
-            category_id (int): ID de la categoría.
+            category_id (str): ID de la categoría (UUID).
 
         Returns:
             CategoryDTO: Datos de la categoría encontrada.

@@ -11,7 +11,7 @@ class LiveSessionCreateDTO(BaseModel):
     Contrato de datos para iniciar una sesión de telemetría en vivo de una experiencia (CU-09).
     """
 
-    experience_id: int = Field(..., ge=1, description="ID de la experiencia que inicia transmisión en vivo")
+    experience_id: str = Field(..., description="ID de la experiencia que inicia transmisión en vivo")
 
 
 class FramePayloadDTO(BaseModel):
@@ -19,7 +19,7 @@ class FramePayloadDTO(BaseModel):
     Contrato de datos para un fotograma efímero muestreado cada 2-3 segundos y procesado solo en RAM (CU-09 / HU-13, HU-14).
     """
 
-    session_id: int = Field(..., ge=1, description="ID de la sesión en vivo activa")
+    session_id: str = Field(..., description="ID de la sesión en vivo activa")
     image_base64: str = Field(..., description="Fotograma codificado en Base64 (descartado de RAM tras inferencia)")
     timestamp_ms: int = Field(..., ge=0, description="Marca de tiempo del fotograma en milisegundos")
 
@@ -31,7 +31,7 @@ class LiveMetricsDTO(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    session_id: int = Field(..., description="ID de la sesión en vivo")
+    session_id: str = Field(..., description="ID de la sesión en vivo")
     recorded_at: datetime = Field(..., description="Fecha y hora de la medición")
     detected_faces_count: int = Field(..., ge=0, description="Cantidad de rostros detectados de forma anónima")
     attention_score: float = Field(..., ge=0.0, le=1.0, description="Índice de atención promedio (0.0 a 1.0)")
@@ -52,8 +52,8 @@ class ActionSuggestionDTO(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: int = Field(..., description="ID único de la sugerencia")
-    session_id: int = Field(..., description="ID de la sesión en vivo")
+    id: str = Field(..., description="ID único de la sugerencia")
+    session_id: str = Field(..., description="ID de la sesión en vivo")
     suggestion_type: SuggestionTypeEnum = Field(..., description="Tipo de sugerencia: MC_DYNAMIC, DJ_MUSIC_CHANGE, BREAK")
     suggestion_text: str = Field(..., description="Descripción de la dinámica o acción recomendada")
     recommended_bpm: str | None = Field(default=None, description="Rango de BPM sugerido para el DJ")
@@ -82,8 +82,8 @@ class PostEventReportDTO(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    session_id: int = Field(..., description="ID de la sesión analizada")
-    experience_id: int = Field(..., description="ID de la experiencia")
+    session_id: str = Field(..., description="ID de la sesión analizada")
+    experience_id: str = Field(..., description="ID de la experiencia")
     experience_title: str = Field(..., description="Título de la experiencia")
     total_duration_minutes: int = Field(..., ge=0, description="Duración total registrada en minutos")
     average_attention_score: float = Field(..., ge=0.0, le=1.0, description="Promedio global de atención")
@@ -100,7 +100,7 @@ class ConsentDTO(BaseModel):
     Contrato de datos para registrar el consentimiento informado GDPR de análisis efímero en RAM (HU-14).
     """
 
-    session_id: int = Field(..., ge=1, description="ID de la sesión en vivo")
+    session_id: str = Field(..., description="ID de la sesión en vivo")
     accepted: bool = Field(..., description="Confirmación de aceptación del asistente")
     consent_type: str = Field(
         default="GDPR_EPHEMERAL_VIDEO_ANALYSIS",

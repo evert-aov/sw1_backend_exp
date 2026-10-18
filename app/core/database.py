@@ -108,6 +108,21 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
+def generate_uuid() -> str:
+    """
+    Genera un identificador único global UUIDv7 (basado en tiempo y ordenable cronológicamente),
+    con fallback transparente a UUIDv4 si el runtime no soporta uuid7.
+
+    Returns:
+        str: Identificador UUID de 36 caracteres.
+    """
+    import uuid
+
+    if hasattr(uuid, "uuid7"):
+        return str(uuid.uuid7())
+    return str(uuid.uuid4())
+
+
 def load_all_entities() -> None:
     """
     Importa todos los paquetes de entidades del dominio para que el registro

@@ -12,7 +12,7 @@ class DemandPredictionService:
     def __init__(self, db: Session):
         self.db = db
 
-    def record_search(self, user_id: int, dto: SearchLogDTO) -> None:
+    def record_search(self, user_id: str | None, dto: SearchLogDTO) -> None:
         # Registrar búsquedas de usuarios para análisis territorial
         pass
 

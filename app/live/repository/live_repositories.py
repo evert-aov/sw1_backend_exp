@@ -11,7 +11,7 @@ class LiveSessionRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def get_by_id(self, session_id: int) -> Optional[LiveSession]:
+    def get_by_id(self, session_id: str) -> Optional[LiveSession]:
         # Buscar sesión en vivo por ID
         pass
 
@@ -19,7 +19,7 @@ class LiveSessionRepository:
         # Inicializar sesión en vivo
         pass
 
-    def update_status(self, session_id: int, status: LiveSessionStatusEnum) -> Optional[LiveSession]:
+    def update_status(self, session_id: str, status: LiveSessionStatusEnum) -> Optional[LiveSession]:
         # Cambiar estado de la sesión (ACTIVE, ENDED)
         pass
 
@@ -33,7 +33,7 @@ class AudienceMetricRepository:
         # Persistir agregación numérica de atención/energía
         pass
 
-    def get_by_session(self, session_id: int) -> List[AudienceMetric]:
+    def get_by_session(self, session_id: str) -> List[AudienceMetric]:
         # Obtener serie temporal de métricas para reportes
         pass
 
@@ -47,7 +47,7 @@ class LiveSuggestionRepository:
         # Registrar sugerencia contextual generada
         pass
 
-    def get_by_session(self, session_id: int) -> List[LiveSuggestion]:
+    def get_by_session(self, session_id: str) -> List[LiveSuggestion]:
         # Listar sugerencias emitidas durante la sesión
         pass
 
@@ -61,6 +61,6 @@ class ConsentRepository:
         # Guardar consentimiento del asistente
         pass
 
-    def check_user_consent(self, session_id: int, user_id: int) -> bool:
+    def check_user_consent(self, session_id: str, user_id: str) -> bool:
         # Verificar si el usuario autorizó análisis efímero
         pass

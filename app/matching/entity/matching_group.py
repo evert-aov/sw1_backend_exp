@@ -1,8 +1,8 @@
 from datetime import datetime, timezone
 import enum
-from sqlalchemy import Column, Integer, DateTime, ForeignKey, Enum
+from sqlalchemy import Column, Integer, DateTime, ForeignKey, Enum, UUID
 from sqlalchemy.orm import relationship
-from app.core.database import Base
+from app.core.database import Base, generate_uuid
 
 
 class MatchingGroupStatusEnum(str, enum.Enum):
@@ -15,8 +15,8 @@ class MatchingGroupStatusEnum(str, enum.Enum):
 class MatchingGroup(Base):
     __tablename__ = "matching_groups"
 
-    id = Column(Integer, primary_key=True, index=True)
-    experience_id = Column(Integer, ForeignKey("experiences.id", ondelete="CASCADE"), nullable=False)
+    id = Column(UUID(as_uuid=False), primary_key=True, default=generate_uuid, index=True)
+    experience_id = Column(UUID(as_uuid=False), ForeignKey("experiences.id", ondelete="CASCADE"), nullable=False)
 
     target_quorum = Column(Integer, nullable=False)   # Meta de participantes
     current_members = Column(Integer, default=0, nullable=False)

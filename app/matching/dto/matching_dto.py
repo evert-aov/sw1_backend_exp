@@ -10,7 +10,7 @@ class MatchingApplicationDTO(BaseModel):
     Contrato de entrada para postular a un grupo dinámico de matching por afinidad (CU-07 / HU-09).
     """
 
-    experience_id: int = Field(..., ge=1, description="ID de la experiencia a la que se desea postular")
+    experience_id: str = Field(..., description="ID de la experiencia a la que se desea postular")
 
 
 class MatchingGroupResponseDTO(BaseModel):
@@ -20,8 +20,8 @@ class MatchingGroupResponseDTO(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: int = Field(..., description="ID del grupo de matching")
-    experience_id: int = Field(..., description="ID de la experiencia vinculada")
+    id: str = Field(..., description="ID del grupo de matching")
+    experience_id: str = Field(..., description="ID de la experiencia vinculada")
     target_quorum: int = Field(..., description="Cantidad mínima de integrantes requerida")
     current_members: int = Field(..., description="Cantidad actual de integrantes agrupados")
     status: MatchingGroupStatusEnum = Field(..., description="Estado del grupo: OPEN, REACHED o EXPIRED")
@@ -37,7 +37,7 @@ class UnmetDemandInsightDTO(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: int = Field(..., description="ID del registro de demanda insatisfecha")
+    id: str = Field(..., description="ID del registro de demanda insatisfecha")
     zone: str = Field(..., description="Zona urbana analizada")
     category_keyword: str = Field(..., description="Categoría o término buscado sin cobertura")
     search_count: int = Field(..., description="Volumen acumulado de búsquedas insatisfechas")

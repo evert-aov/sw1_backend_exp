@@ -1,8 +1,8 @@
 from datetime import datetime, timezone
 import enum
-from sqlalchemy import Column, Integer, Float, String, DateTime, ForeignKey, Enum
+from sqlalchemy import Column, Integer, Float, String, DateTime, ForeignKey, Enum, UUID
 from sqlalchemy.orm import relationship
-from app.core.database import Base
+from app.core.database import Base, generate_uuid
 
 
 class AgeGroupEnum(str, enum.Enum):
@@ -16,8 +16,8 @@ class AgeGroupEnum(str, enum.Enum):
 class AudienceMetric(Base):
     __tablename__ = "audience_metrics"
 
-    id = Column(Integer, primary_key=True, index=True)
-    live_session_id = Column(Integer, ForeignKey("live_sessions.id", ondelete="CASCADE"), nullable=False)
+    id = Column(UUID(as_uuid=False), primary_key=True, default=generate_uuid, index=True)
+    live_session_id = Column(UUID(as_uuid=False), ForeignKey("live_sessions.id", ondelete="CASCADE"), nullable=False)
 
     recorded_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     detected_faces_count = Column(Integer, default=0, nullable=False)

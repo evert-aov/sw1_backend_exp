@@ -35,7 +35,7 @@ def log_user_search(
         dict[str, Any]: Confirmación de registro analítico.
     """
     service = DemandPredictionService(db)
-    service.record_search(user_id=1, dto=dto)
+    service.record_search(user_id=None, dto=dto)
     return {"status": "logged"}
 
 

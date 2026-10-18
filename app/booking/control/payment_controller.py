@@ -18,14 +18,14 @@ payment_router = APIRouter(prefix="/payments", tags=["Payment & Stripe Controlle
     description="Genera una sesión de pago segura en Stripe Checkout para completar una reserva.",
 )
 def create_checkout(
-    booking_id: int,
+    booking_id: str,
     db: Annotated[Session, Depends(get_db)],
 ) -> CheckoutSessionDTO:
     """
     Crea una sesión de pago en Stripe Checkout para la reserva indicada (Sprint 2 - CU-06).
 
     Args:
-        booking_id (int): ID de la reserva a pagar.
+        booking_id (str): ID de la reserva a pagar.
         db (Session): Sesión activa de base de datos.
 
     Returns:

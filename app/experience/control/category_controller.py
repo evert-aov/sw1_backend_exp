@@ -45,14 +45,14 @@ def list_categories(
     response_description="Detalle de la categoría solicitada",
 )
 def get_category(
-    category_id: int,
+    category_id: str,
     db: Annotated[Session, Depends(get_db)],
 ) -> CategoryDTO:
     """
-    Obtiene los detalles de una categoría temática por su ID numérico.
+    Obtiene los detalles de una categoría temática por su ID (UUID).
 
     Args:
-        category_id (int): ID de la categoría a consultar.
+        category_id (str): ID de la categoría a consultar.
         db (Session): Sesión de base de datos inyectada.
 
     Returns:
