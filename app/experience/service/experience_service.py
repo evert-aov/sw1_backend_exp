@@ -1,44 +1,108 @@
+from __future__ import annotations
+
 import math
 from datetime import datetime, timezone
-from typing import List, Optional
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
-
-from app.experience.mapper.experience_mapper import ExperienceMapper
 from app.experience.dto.experience_dto import (
+    CatalogResponseDTO,
     ExperienceCreateDTO,
-    ExperienceUpdateDTO,
     ExperienceFilterDTO,
     ExperienceResponseDTO,
-    CatalogResponseDTO,
+    ExperienceUpdateDTO,
 )
-from app.experience.entity.experience import Experience, ModalityEnum, ExperienceStatusEnum
-from app.experience.repository.experience_repository import ExperienceRepository
+from app.experience.entity.experience import Experience, ExperienceStatusEnum, ModalityEnum
+from app.experience.mapper.experience_mapper import ExperienceMapper
 from app.experience.repository.category_repository import CategoryRepository
+from app.experience.repository.experience_repository import ExperienceRepository
 from app.experience.repository.venue_repository import VenueRepository
 
 
-# Servicio para gestión de experiencias, cálculo de aforos y validación de modalidades (CU-03, CU-04, CU-05)
 class ExperienceService:
-    def __init__(self, db: Session):
+    """
+    Servicio de dominio para Publicación, Gestión y Exploración Geoespacial de Experiencias
+    (CU-04: Publicar Experiencia y CU-05: Explorar y Filtrar Experiencias / HU-04, HU-05, HU-07).
+    """
+
+    def __init__(self, db: Session) -> None:
+        """
+        Inicializa el servicio de experiencias con sus repositorios colaboradores.
+
+        Args:
+            db (Session): Sesión activa de SQLAlchemy.
+        """
         self.db = db
         self.experience_repo = ExperienceRepository(db)
         self.category_repo = CategoryRepository(db)
         self.venue_repo = VenueRepository(db)
 
     def _ensure_utc(self, dt: datetime) -> datetime:
+        """
+        Normaliza un objeto `datetime` a zona horaria UTC explícita.
+
+        Args:
+            dt (datetime): Fecha y hora a normalizar.
+
+        Returns:
+            datetime: Fecha y hora con `tzinfo=timezone.utc`.
+        """
         if dt.tzinfo is None:
             return dt.replace(tzinfo=timezone.utc)
         return dt.astimezone(timezone.utc)
 
     def _to_database_datetime(self, dt: datetime) -> datetime:
+        """
+        Convierte una fecha y hora a UTC sin zona horaria (naive UTC) para almacenamiento consistente.
+
+        Args:
+            dt (datetime): Fecha y hora de entrada.
+
+        Returns:
+            datetime: Fecha y hora UTC naive.
+        """
         return self._ensure_utc(dt).replace(tzinfo=None)
 
-    def _to_response_dto(self, exp: Experience) -> ExperienceResponseDTO:
-        return ExperienceMapper.to_response_dto(exp)
+    def _to_response_dto(
+        self,
+        exp: Experience,
+        user_latitude: float | None = None,
+        user_longitude: float | None = None,
+    ) -> ExperienceResponseDTO:
+        """
+        Transforma una entidad `Experience` en su DTO de respuesta con métricas financieras y de distancia.
+
+        Args:
+            exp (Experience): Entidad ORM `Experience`.
+            user_latitude (float | None): Latitud opcional del usuario para cálculo de distancia.
+            user_longitude (float | None): Longitud opcional del usuario para cálculo de distancia.
+
+        Returns:
+            ExperienceResponseDTO: Contrato de respuesta enriquecido.
+        """
+        return ExperienceMapper.to_response_dto(
+            exp,
+            user_latitude=user_latitude,
+            user_longitude=user_longitude,
+        )
 
     def create_experience(self, host_id: int, dto: ExperienceCreateDTO) -> ExperienceResponseDTO:
-        # 1. Validar categoría
+        """
+        Publica una nueva experiencia validando existencia de categoría, coherencia de aforos
+        (`min_capacity` vs `max_capacity`), fecha futura, capacidad máxima del local físico y ausencia
+        de cruce de horarios en el mismo establecimiento (CU-04 / HU-04, HU-07).
+
+        Args:
+            host_id (int): ID del usuario anfitrión o establecimiento que publica el evento.
+            dto (ExperienceCreateDTO): Datos de configuración del evento, aforos y precio.
+
+        Returns:
+            ExperienceResponseDTO: Experiencia creada con proyecciones financieras de comisiones.
+
+        Raises:
+            HTTPException (404): Si la categoría o el establecimiento indicado no existen.
+            HTTPException (400): Si los aforos son inválidos, la fecha no es futura, falta `venue_id`
+                en modalidad presencial/híbrida, se excede el aforo del local o hay solapamiento horario.
+        """
         category = self.category_repo.get_by_id(dto.category_id)
         if not category:
             raise HTTPException(
@@ -46,7 +110,6 @@ class ExperienceService:
                 detail=f"La categoría con ID {dto.category_id} no existe",
             )
 
-        # 2. Validar capacidades
         if dto.min_capacity <= 0:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -58,7 +121,6 @@ class ExperienceService:
                 detail="El cupo máximo no puede ser inferior al aforo mínimo",
             )
 
-        # 3. Validar fecha a futuro
         now = datetime.now(timezone.utc)
         event_dt = self._ensure_utc(dto.event_date)
         if event_dt <= now:
@@ -67,7 +129,6 @@ class ExperienceService:
                 detail="La fecha del evento debe ser estrictamente futura",
             )
 
-        # 4. Validar modalidad y espacio físico / virtual
         duration = dto.duration_minutes or 120
         if dto.modality in [ModalityEnum.IN_PERSON, ModalityEnum.HYBRID]:
             if not dto.venue_id:
@@ -87,7 +148,6 @@ class ExperienceService:
                     detail=f"El aforo solicitado ({dto.max_capacity}) excede la capacidad máxima del local ({venue.max_capacity})",
                 )
 
-            # Prevención de solapamiento físico en el mismo venue
             if self.experience_repo.has_venue_overlap(dto.venue_id, dto.event_date, duration):
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -95,13 +155,36 @@ class ExperienceService:
                 )
 
         experience = ExperienceMapper.to_entity(dto, host_id)
+        if dto.modality == ModalityEnum.VIRTUAL:
+            experience.venue_id = None
         experience.event_date = self._to_database_datetime(dto.event_date)
         created = self.experience_repo.create(experience)
-        # Recargar con relaciones
         loaded = self.experience_repo.get_by_id(created.id)
         return self._to_response_dto(loaded or created)
 
-    def update_experience(self, experience_id: int, host_id: int, dto: ExperienceUpdateDTO) -> ExperienceResponseDTO:
+    def update_experience(
+        self,
+        experience_id: int,
+        host_id: int,
+        dto: ExperienceUpdateDTO,
+    ) -> ExperienceResponseDTO:
+        """
+        Actualiza los datos, aforos, modalidad o precio de una experiencia existente, verificando
+        propiedad del anfitrión, bloqueo de precio si ya existen reservas y no solapamiento de local (CU-04).
+
+        Args:
+            experience_id (int): ID de la experiencia a modificar.
+            host_id (int): ID del usuario autenticado que solicita la modificación.
+            dto (ExperienceUpdateDTO): Campos a actualizar.
+
+        Returns:
+            ExperienceResponseDTO: Experiencia actualizada con sus cálculos recalculados.
+
+        Raises:
+            HTTPException (404): Si la experiencia o el nuevo establecimiento no existen.
+            HTTPException (403): Si el usuario no es el anfitrión propietario de la experiencia.
+            HTTPException (400): Si se violan reglas de negocio de estado, aforo, precio o horario.
+        """
         exp = self.experience_repo.get_by_id(experience_id)
         if not exp:
             raise HTTPException(
@@ -115,7 +198,6 @@ class ExperienceService:
                 detail="No tienes autorización para modificar esta experiencia",
             )
 
-        # Bloquear edición si el evento ya fue cancelado o finalizado
         if exp.status in [ExperienceStatusEnum.CANCELLED, ExperienceStatusEnum.FINISHED]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -141,7 +223,6 @@ class ExperienceService:
                 detail=f"No se puede reducir la capacidad a {dto.max_capacity} porque ya existen {exp.reserved_slots} cupos reservados",
             )
 
-        # Regla de negocio real: Bloquear cambio de precio si ya existen entradas vendidas
         if exp.reserved_slots > 0 and dto.price is not None and dto.price != exp.price:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -153,7 +234,11 @@ class ExperienceService:
             if dto.event_date is not None
             else exp.event_date
         )
-        new_duration = dto.duration_minutes if dto.duration_minutes is not None else (exp.duration_minutes or 120)
+        new_duration = (
+            dto.duration_minutes
+            if dto.duration_minutes is not None
+            else (exp.duration_minutes or 120)
+        )
 
         if dto.event_date is not None and self._ensure_utc(dto.event_date) <= datetime.now(timezone.utc):
             raise HTTPException(
@@ -222,8 +307,22 @@ class ExperienceService:
         loaded = self.experience_repo.get_by_id(updated.id)
         return self._to_response_dto(loaded or updated)
 
-
     def cancel_experience(self, experience_id: int, host_id: int) -> ExperienceResponseDTO:
+        """
+        Cancela una experiencia publicada cambiando su estado a `CANCELLED` (CU-04).
+
+        Args:
+            experience_id (int): ID de la experiencia a cancelar.
+            host_id (int): ID del anfitrión propietario.
+
+        Returns:
+            ExperienceResponseDTO: Experiencia con estado `CANCELLED`.
+
+        Raises:
+            HTTPException (404): Si la experiencia no existe.
+            HTTPException (403): Si el usuario no es el anfitrión propietario.
+            HTTPException (400): Si la experiencia ya estaba cancelada o finalizada.
+        """
         exp = self.experience_repo.get_by_id(experience_id)
         if not exp:
             raise HTTPException(
@@ -247,12 +346,36 @@ class ExperienceService:
         return self._to_response_dto(loaded or updated)
 
     def get_my_hosted_experiences(
-        self, host_id: int, status: Optional[ExperienceStatusEnum] = None
-    ) -> List[ExperienceResponseDTO]:
+        self,
+        host_id: int,
+        status: ExperienceStatusEnum | None = None,
+    ) -> list[ExperienceResponseDTO]:
+        """
+        Obtiene todas las experiencias publicadas por el anfitrión autenticado (CU-04).
+
+        Args:
+            host_id (int): ID del anfitrión autenticado.
+            status (ExperienceStatusEnum | None): Filtro opcional por estado del evento.
+
+        Returns:
+            list[ExperienceResponseDTO]: Lista de experiencias del anfitrión con desglose de comisiones.
+        """
         experiences = self.experience_repo.get_by_host(host_id, status)
         return [self._to_response_dto(e) for e in experiences]
 
     def get_experience_by_id(self, experience_id: int) -> ExperienceResponseDTO:
+        """
+        Consulta el detalle público de una experiencia por su ID (CU-04, CU-05).
+
+        Args:
+            experience_id (int): ID de la experiencia a consultar.
+
+        Returns:
+            ExperienceResponseDTO: Detalle completo de la experiencia.
+
+        Raises:
+            HTTPException (404): Si la experiencia no existe o se encuentra en borrador (`DRAFT`).
+        """
         exp = self.experience_repo.get_by_id(experience_id)
         if not exp or exp.status == ExperienceStatusEnum.DRAFT:
             raise HTTPException(
@@ -262,17 +385,49 @@ class ExperienceService:
         return self._to_response_dto(exp)
 
     def search_catalog(self, filters: ExperienceFilterDTO) -> CatalogResponseDTO:
+        """
+        Explora y filtra el catálogo público de experiencias soportando búsqueda geoespacial
+        por coordenadas (`latitude`, `longitude`, `radius_km`), zona urbana, categoría, modalidad,
+        rango de fechas, precio máximo y disponibilidad de cupos (CU-05 / HU-05).
+
+        Args:
+            filters (ExperienceFilterDTO): Criterios de búsqueda, geolocalización y paginación.
+
+        Returns:
+            CatalogResponseDTO: Respuesta paginada con el listado de experiencias y metadatos de páginas.
+
+        Raises:
+            HTTPException (422): Si se envían coordenadas de geolocalización incompletas.
+            HTTPException (400): Si el rango de fechas es inválido (`date_from > date_to`).
+        """
         location_values = (filters.latitude, filters.longitude, filters.radius_km)
         if any(value is not None for value in location_values) and not all(
             value is not None for value in location_values
         ):
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                status_code=422,
                 detail="latitude, longitude y radius_km deben enviarse juntos.",
             )
 
+        if (
+            filters.date_from is not None
+            and filters.date_to is not None
+            and self._ensure_utc(filters.date_from) > self._ensure_utc(filters.date_to)
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="La fecha inicial (date_from) no puede ser posterior a la fecha final (date_to).",
+            )
+
         experiences, total_count = self.experience_repo.filter(filters)
-        items = [self._to_response_dto(e) for e in experiences]
+        items = [
+            self._to_response_dto(
+                e,
+                user_latitude=filters.latitude,
+                user_longitude=filters.longitude,
+            )
+            for e in experiences
+        ]
         total_pages = math.ceil(total_count / filters.page_size) if total_count > 0 else 1
         return CatalogResponseDTO(
             total=total_count,

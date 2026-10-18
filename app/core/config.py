@@ -1,14 +1,22 @@
+from __future__ import annotations
+
 import os
-from typing import List, Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    """
+    Configuración global transversal de la aplicación EXPERIENCIA API.
+    Carga variables de entorno desde archivo `.env` o variables del sistema operativo,
+    utilizando tipado moderno de Python 3.14.6 y Pydantic v2.
+    """
+
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True, extra="ignore")
 
     # Configuración general del proyecto
     PROJECT_NAME: str = "EXPERIENCIA API"
     VERSION: str = "1.0.0"
+    PYTHON_TARGET_VERSION: str = "3.14.6"
     API_V1_STR: str = "/api"
 
     # Base de Datos PostgreSQL
@@ -17,7 +25,7 @@ class Settings(BaseSettings):
     DB_USER: str = os.getenv("DB_USER", "evert")
     DB_PASS: str = os.getenv("DB_PASS", "nakroth")
     DB_NAME: str = os.getenv("DB_NAME", "experiencia_db")
-    DB_SYNCHRONIZE: bool = os.getenv("DB_SYNCHRONIZE", "false").lower() in ("true", "1", "t")
+    DB_SYNCHRONIZE: bool = os.getenv("DB_SYNCHRONIZE", "true").lower() in ("true", "1", "t")
     DB_LOGGING: bool = os.getenv("DB_LOGGING", "false").lower() in ("true", "1", "t")
 
     # Seguridad JWT
@@ -32,14 +40,14 @@ class Settings(BaseSettings):
     STRIPE_SECRET_KEY: str = os.getenv("STRIPE_SECRET_KEY", "sk_test_placeholder")
     STRIPE_WEBHOOK_SECRET: str = os.getenv("STRIPE_WEBHOOK_SECRET", "whsec_placeholder")
 
-    # Comisión de la plataforma por defecto
+    # Comisión de la plataforma por defecto (%)
     PLATFORM_FEE_PERCENTAGE: float = float(os.getenv("PLATFORM_FEE_PERCENTAGE", 10.0))
 
-    # URL de conexión directa opcional (ideal para Neon Tech, AWS RDS, Render)
-    DATABASE_URL: Optional[str] = os.getenv("DATABASE_URL")
+    # URL de conexión directa opcional (ideal para Neon Tech, AWS RDS, Render o SQLite de pruebas)
+    DATABASE_URL: str | None = os.getenv("DATABASE_URL")
 
     # Orígenes CORS permitidos
-    CORS_ORIGINS: List[str] = [
+    CORS_ORIGINS: list[str] = [
         "http://localhost:4200",
         "http://127.0.0.1:4200",
         "http://localhost:3000",
@@ -49,7 +57,12 @@ class Settings(BaseSettings):
 
     @property
     def database_url(self) -> str:
-        # Si se especifica DATABASE_URL (ej. Neon Tech en la nube o AWS), normalizar el dialecto a psycopg2
+        """
+        Construye y normaliza la cadena de conexión SQLAlchemy para la base de datos.
+
+        Returns:
+            str: URI de conexión compatible con SQLAlchemy 2.0+ (`postgresql+psycopg2://` o `sqlite:///`).
+        """
         if self.DATABASE_URL:
             url = self.DATABASE_URL.strip()
             if url.startswith("postgres://"):
@@ -57,12 +70,18 @@ class Settings(BaseSettings):
             elif url.startswith("postgresql://") and not url.startswith("postgresql+"):
                 url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
             return url
-        # Si no, construir desde variables individuales de PostgreSQL local
         return f"postgresql+psycopg2://{self.DB_USER}:{self.DB_PASS}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
 
     @property
     def access_token_expire_minutes(self) -> int:
-        # Convierte cadenas como "1d", "2h", "60m" o números en minutos
+        """
+        Calcula el tiempo de expiración del token JWT en minutos a partir de `JWT_EXPIRES_IN`.
+
+        Soporta sufijos de días (`d`), horas (`h`), minutos (`m`) o valores enteros directos.
+
+        Returns:
+            int: Duración de validez del token JWT en minutos.
+        """
         val = self.JWT_EXPIRES_IN.strip().lower()
         if val.endswith("d"):
             return int(val[:-1]) * 24 * 60

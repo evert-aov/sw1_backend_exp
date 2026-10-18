@@ -1,22 +1,50 @@
-from typing import List
+from __future__ import annotations
+
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
-from app.experience.dto.experience_dto import CategoryDTO, CategoryCreateDTO
+from app.experience.dto.experience_dto import CategoryCreateDTO, CategoryDTO
 from app.experience.mapper.category_mapper import CategoryMapper
 from app.experience.repository.category_repository import CategoryRepository
 
 
-# Servicio para gestión de categorías y establecimientos asociados
 class CategoryService:
-    def __init__(self, db: Session):
+    """
+    Servicio de negocio para la administración y consulta de categorías temáticas de experiencias.
+    """
+
+    def __init__(self, db: Session) -> None:
+        """
+        Inicializa el servicio de categorías con su repositorio colaborador.
+
+        Args:
+            db (Session): Sesión activa de SQLAlchemy.
+        """
         self.db = db
         self.category_repo = CategoryRepository(db)
 
-    def get_all_categories(self) -> List[CategoryDTO]:
+    def get_all_categories(self) -> list[CategoryDTO]:
+        """
+        Recupera todas las categorías temáticas registradas en la plataforma.
+
+        Returns:
+            list[CategoryDTO]: Lista de categorías ordenadas alfabéticamente.
+        """
         categories = self.category_repo.get_all()
         return [CategoryMapper.to_dto(c) for c in categories]
 
     def get_category_by_id(self, category_id: int) -> CategoryDTO:
+        """
+        Consulta el detalle de una categoría temática por su identificador único.
+
+        Args:
+            category_id (int): ID de la categoría.
+
+        Returns:
+            CategoryDTO: Datos de la categoría encontrada.
+
+        Raises:
+            HTTPException (404): Si la categoría no existe.
+        """
         category = self.category_repo.get_by_id(category_id)
         if not category:
             raise HTTPException(
@@ -26,6 +54,18 @@ class CategoryService:
         return CategoryMapper.to_dto(category)
 
     def create_category(self, dto: CategoryCreateDTO) -> CategoryDTO:
+        """
+        Registra una nueva categoría temática verificando que su nombre no esté duplicado.
+
+        Args:
+            dto (CategoryCreateDTO): Datos de la nueva categoría.
+
+        Returns:
+            CategoryDTO: Categoría creada y persistida.
+
+        Raises:
+            HTTPException (400): Si ya existe una categoría con el mismo nombre.
+        """
         existing = self.category_repo.get_by_name(dto.name)
         if existing:
             raise HTTPException(
@@ -35,29 +75,3 @@ class CategoryService:
         category = CategoryMapper.to_entity(dto)
         created = self.category_repo.create(category)
         return CategoryMapper.to_dto(created)
-
-    # Desacoplado; implementados en app/experience/service/venue_service.py (VenueService)
-    """
-    def register_venue(self, owner_id: int, dto: VenueCreateDTO) -> VenueDTO:
-        venue = Venue(
-            owner_id=owner_id,
-            name=dto.name.strip(),
-            address=dto.address,
-            city=dto.city or "Santa Cruz de la Sierra",
-            zone=dto.zone,
-            latitude=dto.latitude,
-            longitude=dto.longitude,
-            max_capacity=dto.max_capacity or 50,
-            phone=dto.phone,
-        )
-        created = self.venue_repo.create(venue)
-        return VenueDTO.model_validate(created)
-
-    def get_venues_by_zone(self, zone: str) -> List[VenueDTO]:
-        venues = self.venue_repo.get_by_zone(zone)
-        return [VenueDTO.model_validate(v) for v in venues]
-
-    def get_all_venues(self) -> List[VenueDTO]:
-        venues = self.venue_repo.get_all()
-        return [VenueDTO.model_validate(v) for v in venues]
-    """
