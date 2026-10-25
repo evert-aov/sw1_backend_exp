@@ -176,6 +176,35 @@ class ExperienceRepository:
 
         return items, total_count
 
+    def get_recommendation_candidates(self, as_of: datetime) -> list[Experience]:
+        """Obtiene experiencias futuras y disponibles con categoría y venue precargados.
+
+        Args:
+            as_of (datetime): Fecha de referencia para excluir eventos ya iniciados.
+
+        Returns:
+            list[Experience]: Experiencias abiertas o confirmadas con cupos disponibles.
+        """
+        as_of_utc = (
+            as_of.astimezone(timezone.utc).replace(tzinfo=None)
+            if as_of.tzinfo is not None
+            else as_of.replace(tzinfo=timezone.utc).astimezone(timezone.utc).replace(tzinfo=None)
+        )
+        return (
+            self.db.query(Experience)
+            .options(
+                joinedload(Experience.category),
+                joinedload(Experience.venue),
+            )
+            .filter(
+                Experience.status.in_([ExperienceStatusEnum.OPEN, ExperienceStatusEnum.CONFIRMED]),
+                Experience.event_date > as_of_utc,
+                Experience.reserved_slots < Experience.max_capacity,
+            )
+            .order_by(Experience.event_date.asc(), Experience.id.asc())
+            .all()
+        )
+
     def has_venue_overlap(
         self,
         venue_id: str,

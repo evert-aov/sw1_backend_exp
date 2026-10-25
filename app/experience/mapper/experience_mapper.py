@@ -97,7 +97,11 @@ class ExperienceMapper:
         Returns:
             ExperienceResponseDTO: Contrato de respuesta completo para API web y móvil.
         """
-        is_quorum = exp.reserved_slots >= exp.min_capacity
+        is_quorum = exp.status in {
+            ExperienceStatusEnum.CONFIRMED,
+            ExperienceStatusEnum.LIVE,
+            ExperienceStatusEnum.FINISHED,
+        }
         available_slots = max(0, exp.max_capacity - exp.reserved_slots)
         event_date = exp.event_date
         if event_date.tzinfo is None:

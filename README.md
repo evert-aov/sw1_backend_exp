@@ -38,9 +38,9 @@ app/
 │
 ├── matching/                             # Paquete 4: Inteligencia de Demanda y Quórum (CU-07, CU-08)
 │   ├── entity/                           # MatchingGroup, MatchingMember, UnmetDemand, SearchLog
-│   ├── dto/                              # MatchingApplicationDTO, MatchingGroupResponseDTO, UnmetDemandInsightDTO, SuggestedExperienceDTO
+│   ├── dto/                              # MatchingApplicationDTO, MatchingGroupResponseDTO, UnmetDemandInsightDTO, SuggestedExperienceDTO, SearchLogDTO
 │   ├── repository/                       # MatchingRepository, DemandRepository, SearchLogRepository
-│   ├── service/                          # MatchingAlgorithmService, DemandPredictionService
+│   ├── service/                          # MatchingAlgorithmService, ExperienceRecommendationService, DemandPredictionService
 │   └── control/                          # matching_router (/api/matching), demand_router (/api/demand)
 │
 └── live/                                 # Paquete 5: Visión Artificial y Asistencia en Vivo (CU-09..CU-13)
