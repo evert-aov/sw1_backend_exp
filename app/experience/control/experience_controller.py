@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from typing import Annotated
+
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
+
 from app.auth.entity.user import User
-from app.core.database import get_db
+from app.core.database import SessionLocal, get_db
 from app.core.security import RoleChecker, get_current_active_user
 from app.experience.dto.experience_dto import (
     CatalogResponseDTO,
@@ -15,6 +17,16 @@ from app.experience.dto.experience_dto import (
 )
 from app.experience.entity.experience import ExperienceStatusEnum
 from app.experience.service.experience_service import ExperienceService
+from app.matching.service.demand_prediction_service import DatabaseUnmetDemandRecorder
+
+
+def get_demand_recorder() -> DatabaseUnmetDemandRecorder:
+    """Construye el registrador de demanda con sesiones independientes.
+
+    Returns:
+        DatabaseUnmetDemandRecorder: Adaptador transaccional de Matching.
+    """
+    return DatabaseUnmetDemandRecorder(SessionLocal)
 
 experience_router = APIRouter(
     prefix="/experiences",
@@ -70,6 +82,9 @@ def create_experience(
 def search_catalog(
     filters: Annotated[ExperienceFilterDTO, Depends()],
     db: Annotated[Session, Depends(get_db)],
+    demand_recorder: Annotated[
+        DatabaseUnmetDemandRecorder, Depends(get_demand_recorder)
+    ],
 ) -> CatalogResponseDTO:
     """
     Explora y filtra el catálogo público de experiencias para clientes web y móviles (CU-05).
@@ -77,11 +92,13 @@ def search_catalog(
     Args:
         filters (ExperienceFilterDTO): Criterios de búsqueda, geolocalización GPS y paginación.
         db (Session): Sesión de base de datos inyectada.
+        demand_recorder (DatabaseUnmetDemandRecorder): Registrador de demanda
+            con transacción independiente.
 
     Returns:
         CatalogResponseDTO: Resultado paginado con el listado de experiencias y metadatos de paginación.
     """
-    service = ExperienceService(db)
+    service = ExperienceService(db, demand_recorder=demand_recorder)
     return service.search_catalog(filters)
 
 

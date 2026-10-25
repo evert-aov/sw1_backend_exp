@@ -68,8 +68,8 @@ app/
 11. **`saas_subscriptions`**: Suscripciones recurrentes gestionadas vía Stripe Billing.
 12. **`matching_groups`**: Grupos dinámicos de participantes para alcanzar quórum.
 13. **`matching_members`**: Asistentes postulados a un grupo de matching.
-14. **`unmet_demands`**: Analítica de búsquedas urbanas sin oferta por zona.
-15. **`search_logs`**: Registro histórico de búsquedas.
+14. **`unmet_demands`**: Tabla disponible para agregados materializados; la fase actual no la escribe y calcula ventanas desde `search_logs`.
+15. **`search_logs`**: Señales de búsquedas sin resultados registradas por el backend; la fase actual no guarda texto libre ni identidad de usuario.
 16. **`live_sessions`**: Sesiones de transmisión y telemetría en tiempo real.
 17. **`audience_metrics`**: Agregación numérica de atención/energía en RAM (GDPR estricto sin fotos).
 18. **`live_suggestions`**: Recomendaciones del Asistente MC (dinámicas) y DJ Virtual (BPM/música).

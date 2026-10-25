@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import logging
 import math
 from datetime import datetime, timezone
+from typing import Protocol
+
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
+
 from app.experience.dto.experience_dto import (
     CatalogResponseDTO,
     ExperienceCreateDTO,
@@ -11,11 +15,27 @@ from app.experience.dto.experience_dto import (
     ExperienceResponseDTO,
     ExperienceUpdateDTO,
 )
-from app.experience.entity.experience import Experience, ExperienceStatusEnum, ModalityEnum
+from app.experience.entity.experience import (
+    Experience,
+    ExperienceStatusEnum,
+    ModalityEnum,
+)
 from app.experience.mapper.experience_mapper import ExperienceMapper
 from app.experience.repository.category_repository import CategoryRepository
 from app.experience.repository.experience_repository import ExperienceRepository
 from app.experience.repository.venue_repository import VenueRepository
+
+
+class UnmetDemandRecorder(Protocol):
+    """Registra búsquedas vacías clasificadas sin exponer la persistencia."""
+
+    def record_unmet_search(self, *, category: str, zone: str) -> None:
+        """Registra una búsqueda vacía verificada.
+
+        Args:
+            category (str): Categoría reconocida por el catálogo.
+            zone (str): Zona canónica de un establecimiento existente.
+        """
 
 
 class ExperienceService:
@@ -24,17 +44,28 @@ class ExperienceService:
     (CU-04: Publicar Experiencia y CU-05: Explorar y Filtrar Experiencias / HU-04, HU-05, HU-07).
     """
 
-    def __init__(self, db: Session) -> None:
+    def __init__(
+        self, db: Session, *, demand_recorder: UnmetDemandRecorder | None = None
+    ) -> None:
         """
         Inicializa el servicio de experiencias con sus repositorios colaboradores.
 
         Args:
             db (Session): Sesión activa de SQLAlchemy.
+            demand_recorder (UnmetDemandRecorder | None): Adaptador para registrar
+                búsquedas vacías; si se omite, se crea uno compatible con db.
         """
+        if demand_recorder is None:
+            from app.matching.service.demand_prediction_service import (
+                recorder_for_catalog_session,
+            )
+
+            demand_recorder = recorder_for_catalog_session(db)
         self.db = db
         self.experience_repo = ExperienceRepository(db)
         self.category_repo = CategoryRepository(db)
         self.venue_repo = VenueRepository(db)
+        self.demand_recorder = demand_recorder
 
     def _ensure_utc(self, dt: datetime) -> datetime:
         """
@@ -384,6 +415,46 @@ class ExperienceService:
             )
         return self._to_response_dto(exp)
 
+    def _record_unmet_demand_search(self, filters: ExperienceFilterDTO) -> None:
+        """Registra demanda únicamente para búsquedas vacías verificables.
+
+        Args:
+            filters (ExperienceFilterDTO): Filtros de la búsqueda sin resultados;
+            se exige categoría reconocida y zona existente sin filtros adicionales.
+        """
+        if (
+            not filters.zone
+            or filters.modality is not None
+            or filters.latitude is not None
+            or filters.longitude is not None
+            or filters.radius_km is not None
+            or filters.date_from is not None
+            or filters.date_to is not None
+            or filters.max_price is not None
+        ):
+            return
+
+        if filters.category_id is not None:
+            if filters.search is not None:
+                return
+            category = self.category_repo.get_by_id(filters.category_id)
+        elif filters.search:
+            category = self.category_repo.get_by_name(filters.search)
+        else:
+            return
+
+        if category is None:
+            return
+
+        canonical_zone = self.venue_repo.get_canonical_zone(filters.zone)
+        if canonical_zone is None:
+            return
+
+        self.demand_recorder.record_unmet_search(
+            category=category.name,
+            zone=canonical_zone,
+        )
+
     def search_catalog(self, filters: ExperienceFilterDTO) -> CatalogResponseDTO:
         """
         Explora y filtra el catálogo público de experiencias soportando búsqueda geoespacial
@@ -420,6 +491,14 @@ class ExperienceService:
             )
 
         experiences, total_count = self.experience_repo.filter(filters)
+        if total_count == 0:
+            try:
+                self._record_unmet_demand_search(filters)
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "No se pudo registrar una búsqueda del catálogo sin resultados."
+                )
+
         items = [
             self._to_response_dto(
                 e,
