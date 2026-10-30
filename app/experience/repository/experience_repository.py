@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from sqlalchemy import case, func, or_
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import case, func, or_, select
+from sqlalchemy.orm import Session, joinedload, selectinload
+from app.booking.entity.booking import Booking, BookingStatusEnum
 from app.experience.dto.experience_dto import ExperienceFilterDTO
 from app.experience.entity.experience import Experience, ExperienceStatusEnum
 from app.experience.entity.venue import Venue
@@ -24,7 +25,7 @@ class ExperienceRepository:
         """
         self.db = db
 
-    def get_by_id(self, experience_id: str) -> Experience | None:
+    def get_by_id(self, experience_id: str, for_update: bool = False) -> Experience | None:
         """
         Obtiene una experiencia por su ID (UUID) cargando sus relaciones `category`, `venue` y `host`.
 
@@ -34,16 +35,19 @@ class ExperienceRepository:
         Returns:
             Experience | None: Entidad `Experience` encontrada o `None`.
         """
-        return (
+        query = (
             self.db.query(Experience)
             .options(
                 joinedload(Experience.category),
                 joinedload(Experience.venue),
                 joinedload(Experience.host),
+                selectinload(Experience.bookings.and_(Booking.status == BookingStatusEnum.PENDING)),
             )
             .filter(Experience.id == str(experience_id))
-            .first()
         )
+        if for_update:
+            query = query.populate_existing().with_for_update(of=Experience)
+        return query.first()
 
     def create(self, experience: Experience) -> Experience:
         """
@@ -91,6 +95,7 @@ class ExperienceRepository:
             joinedload(Experience.category),
             joinedload(Experience.venue),
             joinedload(Experience.host),
+            selectinload(Experience.bookings.and_(Booking.status == BookingStatusEnum.PENDING)),
         )
 
         # Solo mostrar experiencias abiertas o confirmadas en el catálogo público
@@ -159,7 +164,12 @@ class ExperienceRepository:
             query = query.filter(Experience.price <= filters.max_price)
 
         if filters.only_available:
-            query = query.filter(Experience.reserved_slots < Experience.max_capacity)
+            held_slots = select(func.coalesce(func.sum(Booking.quantity), 0)).where(
+                Booking.experience_id == Experience.id,
+                Booking.status == BookingStatusEnum.PENDING,
+                (Booking.expires_at > func.now()) | Booking.expires_at.is_(None),
+            ).correlate(Experience).scalar_subquery()
+            query = query.filter(Experience.reserved_slots + held_slots < Experience.max_capacity)
 
         if filters.zone:
             if filters.latitude is None:
@@ -258,6 +268,7 @@ class ExperienceRepository:
                 joinedload(Experience.category),
                 joinedload(Experience.venue),
                 joinedload(Experience.host),
+                selectinload(Experience.bookings.and_(Booking.status == BookingStatusEnum.PENDING)),
             )
             .filter(Experience.host_id == host_id)
         )

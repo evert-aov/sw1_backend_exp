@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 import enum
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Enum, JSON, UUID
+from sqlalchemy import Column, Integer, String, Numeric, DateTime, ForeignKey, Enum, JSON, UUID
 from sqlalchemy.orm import relationship
 from app.core.database import Base, generate_uuid
 
@@ -21,8 +21,8 @@ class Payment(Base):
     stripe_payment_intent_id = Column(String(100), unique=True, nullable=True, index=True)
     stripe_checkout_session_id = Column(String(100), nullable=True, index=True)
 
-    amount = Column(Float, nullable=False)
-    currency = Column(String(10), default="USD")
+    amount = Column(Numeric(14, 2), nullable=False)
+    currency = Column(String(10), default="BOB")
     status = Column(Enum(PaymentStatusEnum), default=PaymentStatusEnum.PENDING, nullable=False)
     payment_metadata = Column(JSON, default=dict)
 

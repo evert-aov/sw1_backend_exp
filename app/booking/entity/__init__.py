@@ -1,5 +1,6 @@
 from app.booking.entity.booking import Booking, BookingStatusEnum
 from app.booking.entity.payment import Payment, PaymentStatusEnum
+from app.booking.entity.stripe_event import StripeEvent
 from app.booking.entity.ticket import Ticket
 from app.booking.entity.saas_plan import SaaSPlan
 from app.booking.entity.saas_subscription import SaaSSubscription, SubscriptionStatusEnum
@@ -9,6 +10,7 @@ __all__ = [
     "BookingStatusEnum",
     "Payment",
     "PaymentStatusEnum",
+    "StripeEvent",
     "Ticket",
     "SaaSPlan",
     "SaaSSubscription",

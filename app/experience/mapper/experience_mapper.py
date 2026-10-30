@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import math
-from datetime import timezone
-from app.core.config import settings
+from datetime import datetime, timezone
+from app.booking.entity.booking import BookingStatusEnum
+from app.core.pricing import quote_price
 from app.experience.dto.experience_dto import ExperienceCreateDTO, ExperienceResponseDTO
 from app.experience.entity.experience import Experience, ExperienceStatusEnum
 
@@ -80,7 +81,6 @@ class ExperienceMapper:
     @staticmethod
     def to_response_dto(
         exp: Experience,
-        commission_percentage: float | None = None,
         user_latitude: float | None = None,
         user_longitude: float | None = None,
     ) -> ExperienceResponseDTO:
@@ -90,7 +90,6 @@ class ExperienceMapper:
 
         Args:
             exp (Experience): Entidad ORM `Experience`.
-            commission_percentage (float | None): Porcentaje de comisión opcional a aplicar.
             user_latitude (float | None): Latitud del usuario para calcular `distance_km`.
             user_longitude (float | None): Longitud del usuario para calcular `distance_km`.
 
@@ -98,7 +97,15 @@ class ExperienceMapper:
             ExperienceResponseDTO: Contrato de respuesta completo para API web y móvil.
         """
         is_quorum = exp.reserved_slots >= exp.min_capacity
-        available_slots = max(0, exp.max_capacity - exp.reserved_slots)
+        now = datetime.now(timezone.utc)
+        held_slots = sum(
+            booking.quantity for booking in exp.bookings
+            if booking.status == BookingStatusEnum.PENDING and (
+                booking.expires_at is None or
+                (booking.expires_at.replace(tzinfo=timezone.utc) if booking.expires_at.tzinfo is None else booking.expires_at) > now
+            )
+        )
+        available_slots = max(0, exp.max_capacity - exp.reserved_slots - held_slots)
         event_date = exp.event_date
         if event_date.tzinfo is None:
             event_date = event_date.replace(tzinfo=timezone.utc)
@@ -129,13 +136,9 @@ class ExperienceMapper:
                 user_latitude, user_longitude, v_lat, v_lon
             )
 
-        fee_percentage = (
-            commission_percentage
-            if commission_percentage is not None
-            else settings.PLATFORM_FEE_PERCENTAGE
-        )
-        commission_rate = fee_percentage / 100.0
-        net_price_per_ticket = round(exp.price * (1.0 - commission_rate), 2)
+        quote = quote_price(exp.price)
+        commission_rate = float(quote.commission_rate)
+        net_price_per_ticket = float(quote.net_per_ticket)
 
         return ExperienceResponseDTO(
             id=exp.id,
@@ -161,6 +164,7 @@ class ExperienceMapper:
             max_capacity=exp.max_capacity,
             reserved_slots=exp.reserved_slots,
             available_slots=available_slots,
+            held_slots=held_slots,
             event_date=event_date,
             duration_minutes=exp.duration_minutes or 120,
             virtual_meeting_url=exp.virtual_meeting_url,

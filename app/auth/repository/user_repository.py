@@ -45,7 +45,7 @@ class UserRepository:
         """
         return self.db.query(User).filter(User.email == email.lower().strip()).first()
 
-    def create(self, user: User) -> User:
+    def create(self, user: User, commit: bool = True) -> User:
         """
         Registra y persiste un nuevo usuario en la base de datos (CU-01).
 
@@ -56,7 +56,10 @@ class UserRepository:
             User: Entidad `User` persistida con su ID autogenerado.
         """
         self.db.add(user)
-        self.db.commit()
+        if commit:
+            self.db.commit()
+        else:
+            self.db.flush()
         self.db.refresh(user)
         return user
 
@@ -74,7 +77,7 @@ class UserRepository:
         self.db.refresh(user)
         return user
 
-    def assign_role(self, user_id: str, role_id: str) -> UserRole:
+    def assign_role(self, user_id: str, role_id: str, commit: bool = True) -> UserRole:
         """
         Asigna un rol a un usuario en la tabla intermedia `user_roles` evitando duplicados.
 
@@ -95,7 +98,10 @@ class UserRepository:
 
         user_role = UserRole(user_id=str(user_id), role_id=str(role_id))
         self.db.add(user_role)
-        self.db.commit()
+        if commit:
+            self.db.commit()
+        else:
+            self.db.flush()
         self.db.refresh(user_role)
         return user_role
 

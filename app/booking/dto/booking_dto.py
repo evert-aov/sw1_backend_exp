@@ -32,6 +32,12 @@ class TicketDTO(BaseModel):
     used_at: datetime | None = Field(default=None, description="Fecha y hora de escaneo del ticket")
 
 
+class TicketScanDTO(BaseModel):
+    """Acepta la lectura firmada del QR o el código legible de una entrada."""
+
+    code: str = Field(min_length=1, max_length=4096)
+
+
 class BookingResponseDTO(BaseModel):
     """
     Contrato de respuesta de una reserva con desglose de comisión de plataforma y entradas generadas (CU-06 / HU-06, HU-07).
@@ -48,6 +54,13 @@ class BookingResponseDTO(BaseModel):
     host_payout: float = Field(..., description="Liquidación neta para el anfitrión")
     status: BookingStatusEnum = Field(..., description="Estado actual de la reserva")
     created_at: datetime = Field(..., description="Fecha y hora de creación de la reserva")
+    expires_at: datetime | None = None
+    currency: str = "BOB"
+    cancellation_reason: str | None = None
+    experience_title: str | None = None
+    event_date: datetime | None = None
+    experience_status: str | None = None
+    refund_status: str | None = None
     tickets: list[TicketDTO] = Field(
         default_factory=list,
         description="Lista de tickets digitales emitidos para la reserva",
@@ -64,6 +77,17 @@ class CheckoutSessionDTO(BaseModel):
     booking_id: str = Field(..., description="ID de la reserva vinculada al pago")
     checkout_url: str = Field(..., description="URL de redirección hacia la pasarela Stripe Checkout")
     stripe_session_id: str = Field(..., description="ID de sesión generado por Stripe")
+
+
+class HostIncomeDTO(BaseModel):
+    """Ingresos realizados por moneda; las devoluciones pendientes siguen conciliándose."""
+
+    currency: str
+    gross: float
+    platform_fee: float
+    net: float
+    refunded: float
+    refund_pending: float
 
 
 class StripeWebhookDTO(BaseModel):

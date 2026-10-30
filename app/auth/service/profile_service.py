@@ -4,7 +4,10 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 from app.auth.dto.auth_dto import PreferencesUpdateDTO, ProfileDTO, ProfileUpdateDTO
 from app.auth.entity.user import User
+from app.auth.entity.role import Role
+from app.auth.entity.user_role import UserRole
 from app.auth.repository.user_repository import UserRepository
+from app.auth.repository.role_repository import RoleRepository
 
 
 class ProfileService:
@@ -22,6 +25,7 @@ class ProfileService:
         """
         self.db = db
         self.user_repo = UserRepository(db)
+        self.role_repo = RoleRepository(db)
 
     def _to_profile_dto(self, user: User) -> ProfileDTO:
         """
@@ -144,3 +148,15 @@ class ProfileService:
         """
         users = self.user_repo.get_all(skip=skip, limit=limit)
         return [self._to_profile_dto(u) for u in users]
+
+    def switch_public_role(self, user_id: str, target_role: str) -> ProfileDTO:
+        """Compatibilidad de clientes antiguos: nunca concede ni retira roles asignados."""
+        if target_role not in {
+            "HOST",
+            "ATTENDEE",
+        } or target_role not in self.user_repo.get_user_roles(user_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Los roles de la cuenta se asignan desde la administración",
+            )
+        return self.get_profile(user_id)

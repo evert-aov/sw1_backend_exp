@@ -1,6 +1,8 @@
 # EXPERIENCIA — Backend API
 
-Backend desarrollado en **Python 3.11+ con FastAPI**, utilizando una **Arquitectura en Capas** estricta y modularizada por paquetes de dominio, con persistencia relacional en **PostgreSQL** mediante **SQLAlchemy 2.0**.
+> Documentación vigente: [guía del desarrollador](guia-desarrollador/README.md). Usar Python 3.14.6 y PostgreSQL del `.env`; `DB_SYNCHRONIZE=true` aplica migraciones al arrancar, sin ejecutar semillas. La suite disponible se ejecuta con `python -m pytest -q -rs`; el archivo `test_auth_endpoints.py` citado más abajo no existe. Las referencias antiguas a CU, SQLite o estado completo del sprint deben contrastarse con la guía.
+
+Backend desarrollado en **Python 3.14.6 con FastAPI**, utilizando una **Arquitectura en Capas** estricta y modularizada por paquetes de dominio, con persistencia relacional en **PostgreSQL** mediante **SQLAlchemy 2.0**.
 
 ---
 
@@ -82,7 +84,7 @@ app/
 Sigue estos pasos en orden para clonar, levantar el backend y probar el avance del **Sprint 1**:
 
 ### 1. Requisitos Previos
-- **Python 3.11+** o **3.12** instalado
+- **Python 3.14.6** instalado
 - **PostgreSQL 15+** local (o una base de datos en la nube como **Neon Tech**)
 
 ### 2. Clonar rama y preparar Entorno Virtual
@@ -135,14 +137,14 @@ alembic upgrade head
 python seed.py
 ```
 
-`DB_SYNCHRONIZE=false` deja que Alembic sea la fuente de verdad del esquema. 
+`DB_SYNCHRONIZE=false` exige migrar antes de iniciar. Para desarrollo, `DB_SYNCHRONIZE=true` aplica las migraciones Alembic al arrancar, incluyendo la creación de tablas en una base vacía. Ambas opciones usan el historial versionado; ninguna ejecuta semillas automáticamente.
 
 ### 5. Ejecutar la Suite de Pruebas Automatizadas
 Verifica que todos los endpoints funcionen correctamente con un solo comando:
 ```bash
-python test_auth_endpoints.py
+python -m pytest -q -rs
 ```
-*Deberás ver: `[SUCCESS] ALL TESTS PASSED SUCCESSFULLY! SPRINT 1 IS 100% OPERATIONAL!`*
+Revisar resultados y pruebas omitidas. Una suite unitaria aprobada no acredita PostgreSQL ni cierra el sprint.
 
 ### 6. Levantar el Servidor de Desarrollo
 ```bash
@@ -184,3 +186,7 @@ Todos los usuarios semilla tienen la **misma contraseña estándar**:
    ```
 3. **Consultar Perfil del Usuario Logueado:** `GET /api/users/me`
 4. **Actualizar Perfil e Intereses:** `PUT /api/users/me` con el JSON de campos a modificar.
+
+Permisos vigentes y primera cuenta de propietario: [roles y administración](guia-desarrollador/08-ROLES-Y-ADMINISTRACION.md). HOST asume la gestión de lugares; ADMIN no se concede por autorregistro.
+
+Seed adicional de los paneles por rol: `venv/bin/python scripts/seed_role_demo.py`. La [guía del dataset roles-v2](guia-desarrollador/09-SEED-DE-ROLES-Y-ESCENARIOS.md) incluye cuentas de prueba, escenarios y repetición segura.

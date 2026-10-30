@@ -10,20 +10,39 @@ from app.auth.dto.auth_dto import (
     ProfileDTO,
     ProfileUpdateDTO,
     RegisterDTO,
+    RoleSwitchDTO,
     TokenResponseDTO,
 )
 from app.auth.entity.user import User
 from app.auth.service.auth_service import AuthService
 from app.auth.service.profile_service import ProfileService
 from app.core.database import get_db
-from app.core.security import get_current_active_user, get_current_token
+from app.core.security import get_current_active_user, get_current_token, RoleChecker
 
-auth_router = APIRouter(prefix="/auth", tags=["Auth Controller (CU-01, CU-02)"])
-users_router = APIRouter(prefix="/users", tags=["Users Controller (CU-03)"])
+auth_router = APIRouter(prefix="/auth", tags=["Auth Controller (CU-01)"])
+users_router = APIRouter(prefix="/users", tags=["Users Controller (CU-02)"])
+
+
+@auth_router.post("/mobile/login", response_model=TokenResponseDTO)
+def mobile_login(
+    dto: LoginDTO, db: Annotated[Session, Depends(get_db)]
+) -> TokenResponseDTO:
+    """Emite sesión móvil solo si ATTENDEE está asignado actualmente en PostgreSQL."""
+    return AuthService(db).login(dto, required_role="ATTENDEE")
+
+
+@users_router.post("/me/role", response_model=ProfileDTO)
+def switch_public_role(
+    dto: RoleSwitchDTO,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> ProfileDTO:
+    """Compatibilidad de clientes: consulta roles ya asignados sin conceder ni retirar permisos."""
+    return ProfileService(db).switch_public_role(current_user.id, dto.role)
 
 
 # =====================================================================
-# Endpoints de Registro y Autenticación con JWT (CU-01 y CU-02)
+# Endpoints de Registro y Autenticación con JWT (CU-01 y CU-01)
 # =====================================================================
 
 
@@ -34,7 +53,7 @@ users_router = APIRouter(prefix="/users", tags=["Users Controller (CU-03)"])
     summary="Registrar una nueva cuenta de usuario (CU-01 / HU-01)",
     description=(
         "Registra un nuevo usuario en la plataforma validando unicidad de correo electrónico, "
-        "encriptando su contraseña con bcrypt y asignándole el rol solicitado (`ATTENDEE`, `HOST`, `VENUE`, `ADMIN`)."
+        "encriptando su contraseña con bcrypt y asignándole el rol solicitado (`ATTENDEE`, `HOST`); ADMIN no admite autorregistro."
     ),
     response_description="Perfil del usuario creado exitosamente",
 )
@@ -60,7 +79,7 @@ def register(
     "/login",
     response_model=TokenResponseDTO,
     status_code=status.HTTP_200_OK,
-    summary="Iniciar sesión y obtener token JWT (CU-02 / HU-02)",
+    summary="Iniciar sesión y obtener token JWT (CU-01 / HU-02)",
     description=(
         "Autentica las credenciales del usuario (`email` y `password`) y emite un token JWT firmado (HS256) "
         "junto con la lista de roles asociados para consumir endpoints protegidos."
@@ -72,7 +91,7 @@ def login(
     db: Annotated[Session, Depends(get_db)],
 ) -> TokenResponseDTO:
     """
-    Endpoint para autenticar un usuario e iniciar sesión con JWT (CU-02: Autenticar Usuario - Login).
+    Endpoint para autenticar un usuario e iniciar sesión con JWT (CU-01: Autenticar Usuario - Login).
 
     Args:
         dto (LoginDTO): Correo electrónico y contraseña del usuario.
@@ -89,7 +108,7 @@ def login(
     "/logout",
     response_model=LogoutResponseDTO,
     status_code=status.HTTP_200_OK,
-    summary="Cerrar sesión e invalidar token JWT activo (CU-02 / HU-02)",
+    summary="Cerrar sesión e invalidar token JWT activo (CU-01 / HU-02)",
     description=(
         "Revoca el token JWT Bearer actual del usuario autenticado agregándolo a la lista de tokens "
         "invalidados para impedir su uso en peticiones posteriores."
@@ -102,7 +121,7 @@ def logout(
     db: Annotated[Session, Depends(get_db)],
 ) -> LogoutResponseDTO:
     """
-    Endpoint para cerrar sesión e invalidar el token JWT activo (CU-02: Autenticar Usuario - Logout).
+    Endpoint para cerrar sesión e invalidar el token JWT activo (CU-01: Autenticar Usuario - Logout).
 
     Args:
         current_user (User): Usuario activo autenticado.
@@ -120,7 +139,7 @@ def logout(
     "/refresh",
     response_model=TokenResponseDTO,
     status_code=status.HTTP_200_OK,
-    summary="Renovar token JWT de acceso (CU-02 / HU-02)",
+    summary="Renovar token JWT de acceso (CU-01 / HU-02)",
     description="Emite un nuevo token JWT con expiración extendida para el usuario autenticado activo.",
     response_description="Nuevo token JWT emitido",
 )
@@ -129,7 +148,7 @@ def refresh_token(
     db: Annotated[Session, Depends(get_db)],
 ) -> TokenResponseDTO:
     """
-    Endpoint para renovar el token JWT de un usuario con sesión activa (CU-02).
+    Endpoint para renovar el token JWT de un usuario con sesión activa (CU-01).
 
     Args:
         current_user (User): Usuario activo autenticado mediante su JWT actual.
@@ -143,7 +162,7 @@ def refresh_token(
 
 
 # =====================================================================
-# Endpoints de Gestión de Perfil de Usuario y Preferencias (CU-03)
+# Endpoints de Gestión de Perfil de Usuario y Preferencias (CU-02)
 # =====================================================================
 
 
@@ -151,18 +170,20 @@ def refresh_token(
     "",
     response_model=list[ProfileDTO],
     status_code=status.HTTP_200_OK,
-    summary="Listar usuarios registrados (CU-03 / HU-03)",
+    summary="Listar usuarios registrados (CU-02 / HU-03)",
     description="Consulta de forma paginada la lista de usuarios registrados con sus roles e intereses.",
     response_description="Lista paginada de perfiles de usuario",
 )
 def list_users(
     skip: Annotated[int, Query(ge=0, description="Número de registros a omitir")] = 0,
-    limit: Annotated[int, Query(ge=1, le=500, description="Límite de usuarios por página")] = 100,
-    current_user: Annotated[User, Depends(get_current_active_user)] = None,  # type: ignore[assignment]
+    limit: Annotated[
+        int, Query(ge=1, le=500, description="Límite de usuarios por página")
+    ] = 100,
+    current_user: Annotated[User, Depends(RoleChecker(["ADMIN"]))] = None,  # type: ignore[assignment]
     db: Annotated[Session, Depends(get_db)] = None,  # type: ignore[assignment]
 ) -> list[ProfileDTO]:
     """
-    Lista todos los perfiles de usuario registrados en la plataforma (requiere autenticación JWT).
+    Lista perfiles registrados; requiere el rol ADMIN.
 
     Args:
         skip (int): Cantidad de registros a omitir para paginación.
@@ -181,7 +202,7 @@ def list_users(
     "/me",
     response_model=ProfileDTO,
     status_code=status.HTTP_200_OK,
-    summary="Consultar el perfil del usuario autenticado (CU-03 / HU-03)",
+    summary="Consultar el perfil del usuario autenticado (CU-02 / HU-03)",
     description="Obtiene los datos personales, avatar, biografía, roles y etiquetas de intereses del usuario actual.",
     response_description="Perfil completo del usuario autenticado",
 )
@@ -190,7 +211,7 @@ def get_current_user_profile(
     db: Annotated[Session, Depends(get_db)],
 ) -> ProfileDTO:
     """
-    Consulta y retorna el perfil completo y preferencias del usuario autenticado (CU-03).
+    Consulta y retorna el perfil completo y preferencias del usuario autenticado (CU-02).
 
     Args:
         current_user (User): Usuario autenticado resuelto desde el token JWT.
@@ -207,7 +228,7 @@ def get_current_user_profile(
     "/me",
     response_model=ProfileDTO,
     status_code=status.HTTP_200_OK,
-    summary="Actualizar perfil y preferencias del usuario autenticado (CU-03 / HU-03)",
+    summary="Actualizar perfil y preferencias del usuario autenticado (CU-02 / HU-03)",
     description=(
         "Actualiza nombres, apellidos, teléfono, URL de foto de perfil (`avatar_url`), biografía (`bio`) "
         "y lista de etiquetas de intereses temáticos (`interests`) del usuario en sesión."
@@ -220,7 +241,7 @@ def update_current_user_profile(
     db: Annotated[Session, Depends(get_db)],
 ) -> ProfileDTO:
     """
-    Actualiza el perfil personal y las etiquetas de preferencias del usuario autenticado (CU-03).
+    Actualiza el perfil personal y las etiquetas de preferencias del usuario autenticado (CU-02).
 
     Args:
         dto (ProfileUpdateDTO): Datos personales y preferencias a modificar.
@@ -238,7 +259,7 @@ def update_current_user_profile(
     "/me/preferences",
     response_model=ProfileDTO,
     status_code=status.HTTP_200_OK,
-    summary="Actualizar etiquetas de intereses y preferencias temáticas (CU-03 / HU-03)",
+    summary="Actualizar etiquetas de intereses y preferencias temáticas (CU-02 / HU-03)",
     description="Permite actualizar directamente la lista de intereses temáticos, biografía y avatar del usuario.",
     response_description="Perfil actualizado con las nuevas preferencias",
 )
@@ -248,7 +269,7 @@ def update_current_user_preferences(
     db: Annotated[Session, Depends(get_db)],
 ) -> ProfileDTO:
     """
-    Actualiza específicamente las preferencias e intereses temáticos del usuario autenticado (CU-03).
+    Actualiza específicamente las preferencias e intereses temáticos del usuario autenticado (CU-02).
 
     Args:
         dto (PreferencesUpdateDTO): Lista de etiquetas de interés y metadatos opcionales de perfil.
@@ -266,8 +287,8 @@ def update_current_user_preferences(
     "/{user_id}",
     response_model=ProfileDTO,
     status_code=status.HTTP_200_OK,
-    summary="Consultar información de un perfil por su ID (CU-03)",
-    description="Obtiene el perfil público y preferencias de un usuario específico mediante su ID (UUID).",
+    summary="Consultar información de un perfil por su ID (CU-02)",
+    description="Obtiene el perfil propio o, con ADMIN, el de otra cuenta mediante su ID (UUID).",
     response_description="Perfil del usuario solicitado",
 )
 def get_user_by_id(
@@ -276,7 +297,7 @@ def get_user_by_id(
     db: Annotated[Session, Depends(get_db)],
 ) -> ProfileDTO:
     """
-    Consulta el perfil de un usuario específico por su identificador único (CU-03).
+    Consulta el perfil de un usuario específico por su identificador único (CU-02).
 
     Args:
         user_id (str): ID (UUID) del usuario a consultar.
@@ -286,5 +307,7 @@ def get_user_by_id(
     Returns:
         ProfileDTO: Datos del perfil solicitado.
     """
+    if user_id != current_user.id:
+        RoleChecker(["ADMIN"])(current_user=current_user, db=db)
     service = ProfileService(db)
     return service.get_profile(user_id)

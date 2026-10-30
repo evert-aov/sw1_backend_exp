@@ -12,16 +12,36 @@ from app.experience.service.venue_service import VenueService
 venue_router = APIRouter(prefix="/venues", tags=["Venues Controller"])
 
 
+@venue_router.get("/me/owned", response_model=list[VenueDTO])
+def my_venues(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(RoleChecker(["HOST", "VENUE"]))],
+):
+    return VenueService(db).get_my_venues(current_user.id)
+
+
+@venue_router.put("/{venue_id}", response_model=VenueDTO)
+def update_my_venue(
+    venue_id: str,
+    dto: VenueCreateDTO,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(RoleChecker(["HOST", "VENUE"]))],
+):
+    return VenueService(db).update_my_venue(venue_id, current_user.id, dto)
+
+
 @venue_router.get(
     "",
     response_model=list[VenueDTO],
     status_code=status.HTTP_200_OK,
-    summary="Listar establecimientos físicos geolocalizados (CU-04, CU-05)",
+    summary="Listar establecimientos físicos geolocalizados (CU-03, CU-04)",
     description="Consulta la lista de locales y establecimientos registrados, permitiendo filtrar opcionalmente por zona urbana.",
     response_description="Lista de establecimientos físicos",
 )
 def list_venues(
-    zone: Annotated[str | None, Query(description="Filtrar establecimientos por zona urbana")] = None,
+    zone: Annotated[
+        str | None, Query(description="Filtrar establecimientos por zona urbana")
+    ] = None,
     db: Annotated[Session, Depends(get_db)] = None,  # type: ignore[assignment]
 ) -> list[VenueDTO]:
     """
@@ -68,14 +88,14 @@ def get_venue(
     "",
     response_model=VenueDTO,
     status_code=status.HTTP_201_CREATED,
-    summary="Registrar un nuevo establecimiento físico (CU-04)",
+    summary="Registrar un nuevo establecimiento físico (CU-03)",
     description="Permite a usuarios con rol `VENUE`, `HOST` o `ADMIN` dar de alta un nuevo espacio físico geolocalizado.",
     response_description="Establecimiento registrado exitosamente",
 )
 def create_venue(
     dto: VenueCreateDTO,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(RoleChecker(["VENUE", "HOST", "ADMIN"]))],
+    current_user: Annotated[User, Depends(RoleChecker(["HOST", "VENUE"]))],
 ) -> VenueDTO:
     """
     Registra un nuevo establecimiento comercial asociado al usuario autenticado.

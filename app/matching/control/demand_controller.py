@@ -4,6 +4,8 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 from app.core.database import get_db
+from app.auth.entity.user import User
+from app.core.security import RoleChecker
 from app.matching.dto.matching_dto import (
     SearchLogDTO,
     SuggestedExperienceDTO,
@@ -11,13 +13,13 @@ from app.matching.dto.matching_dto import (
 )
 from app.matching.service.demand_prediction_service import DemandPredictionService
 
-demand_router = APIRouter(prefix="/demand", tags=["Demand Insights Controller (CU-08)"])
+demand_router = APIRouter(prefix="/demand", tags=["Demand Insights Controller (CU-07)"])
 
 
 @demand_router.post(
     "/log-search",
     status_code=status.HTTP_201_CREATED,
-    summary="Registrar búsqueda de usuario para analítica de demanda (CU-08)",
+    summary="Registrar búsqueda de usuario para analítica de demanda (CU-07)",
     description="Almacena consultas de búsqueda para detectar tendencias de demanda urbana insatisfecha.",
 )
 def log_user_search(
@@ -25,7 +27,7 @@ def log_user_search(
     db: Annotated[Session, Depends(get_db)],
 ) -> dict[str, Any]:
     """
-    Registra una búsqueda en el historial analítico para prospección territorial (Sprint 2 - CU-08).
+    Registra una búsqueda en el historial analítico para prospección territorial (Sprint 2 - CU-07).
 
     Args:
         dto (SearchLogDTO): Parámetros de la búsqueda realizada.
@@ -43,15 +45,16 @@ def log_user_search(
     "/insights",
     response_model=list[UnmetDemandInsightDTO],
     status_code=status.HTTP_200_OK,
-    summary="Consultar prospección de demanda insatisfecha por zona (CU-08 / HU-10)",
+    summary="Consultar prospección de demanda insatisfecha por zona (CU-07 / HU-10)",
     description="Devuelve métricas de búsquedas no cubiertas agrupadas por zona geográfica.",
 )
 def get_unmet_demand_insights(
-    zone: str,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(RoleChecker(["HOST", "VENUE", "ADMIN"]))],
+    zone: str | None = None,
 ) -> list[UnmetDemandInsightDTO]:
     """
-    Obtiene los indicadores de demanda urbana insatisfecha en una zona específica (Sprint 2 - CU-08).
+    Obtiene los indicadores de demanda urbana insatisfecha en una zona específica (Sprint 2 - CU-07).
 
     Args:
         zone (str): Nombre de la zona urbana a analizar.
@@ -68,15 +71,16 @@ def get_unmet_demand_insights(
     "/suggestions",
     response_model=list[SuggestedExperienceDTO],
     status_code=status.HTTP_200_OK,
-    summary="Obtener recomendaciones de creación de eventos por zona (CU-08 / HU-11)",
+    summary="Obtener recomendaciones de creación de eventos por zona (CU-07 / HU-11)",
     description="Sugiere temáticas, horarios y precios óptimos basados en la demanda vecinal.",
 )
 def get_ai_suggestions_for_venue(
-    zone: str,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(RoleChecker(["HOST", "VENUE", "ADMIN"]))],
+    zone: str | None = None,
 ) -> list[SuggestedExperienceDTO]:
     """
-    Genera propuestas inteligentes de eventos rentables para establecimientos según su zona (CU-08).
+    Genera propuestas inteligentes de eventos rentables para establecimientos según su zona (CU-07).
 
     Args:
         zone (str): Zona urbana del establecimiento.

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
-from typing import Any
-from fastapi import APIRouter, status
+from typing import Annotated, Any
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 from app.core.database import reset_and_seed_database, reset_database, seed_database
+from app.core.config import settings
+from app.core.security import RoleChecker
+from app.auth.entity.user import User
 
 
 class SystemResetResponseDTO(BaseModel):
@@ -34,7 +37,18 @@ class SystemSeedResponseDTO(BaseModel):
     experiences: list[dict[str, Any]] = Field(default_factory=list, description="Experiencias de prueba publicadas")
 
 
-system_router = APIRouter(prefix="/system", tags=["System & Database Administration"])
+def require_maintenance_access(
+    current_user: Annotated[User, Depends(RoleChecker(["ADMIN"]))],
+) -> None:
+    """Exige administrador y habilitación explícita antes de cualquier mantenimiento HTTP."""
+    if not settings.ENABLE_MAINTENANCE_ENDPOINTS:
+        raise HTTPException(status_code=404, detail="Mantenimiento HTTP deshabilitado")
+
+
+system_router = APIRouter(
+    prefix="/system", tags=["System & Database Administration"],
+    dependencies=[Depends(require_maintenance_access)],
+)
 
 
 @system_router.post(
@@ -42,7 +56,7 @@ system_router = APIRouter(prefix="/system", tags=["System & Database Administrat
     response_model=SystemResetResponseDTO,
     status_code=status.HTTP_200_OK,
     summary="Vaciar y limpiar la base de datos completa en cascada",
-    description="Elimina y recrea todas las 19 tablas en cascada, limpiando también los tokens revocados en memoria.",
+    description="Elimina y recrea las tablas, incluido el registro persistente de revocaciones.",
     response_description="Confirmación de base de datos reiniciada",
 )
 def reset_db_endpoint() -> SystemResetResponseDTO:
@@ -52,9 +66,6 @@ def reset_db_endpoint() -> SystemResetResponseDTO:
     Returns:
         SystemResetResponseDTO: Resumen del reinicio y número de tablas recreadas.
     """
-    from app.core.security import clear_revoked_tokens
-
-    clear_revoked_tokens()
     result = reset_database()
     return SystemResetResponseDTO(**result)
 
@@ -100,8 +111,5 @@ def reset_and_seed_endpoint() -> SystemSeedResponseDTO:
     Returns:
         SystemSeedResponseDTO: Resumen completo de los datos semilla recreados.
     """
-    from app.core.security import clear_revoked_tokens
-
-    clear_revoked_tokens()
     result = reset_and_seed_database()
     return SystemSeedResponseDTO(**result)

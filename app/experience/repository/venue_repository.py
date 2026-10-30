@@ -19,7 +19,7 @@ class VenueRepository:
         """
         self.db = db
 
-    def get_by_id(self, venue_id: str) -> Venue | None:
+    def get_by_id(self, venue_id: str, for_update: bool = False) -> Venue | None:
         """
         Recupera un establecimiento físico por su identificador único (UUID).
 
@@ -29,7 +29,18 @@ class VenueRepository:
         Returns:
             Venue | None: Entidad `Venue` encontrada o `None`.
         """
-        return self.db.query(Venue).filter(Venue.id == str(venue_id)).first()
+        query = self.db.query(Venue).filter(Venue.id == str(venue_id))
+        if for_update:
+            query = query.populate_existing().with_for_update(of=Venue)
+        return query.first()
+
+    def get_by_owner(self, owner_id: str) -> list[Venue]:
+        return (
+            self.db.query(Venue)
+            .filter(Venue.owner_id == owner_id)
+            .order_by(Venue.name.asc())
+            .all()
+        )
 
     def create(self, venue: Venue) -> Venue:
         """

@@ -9,21 +9,24 @@ class PaymentRepository:
         self.db = db
 
     def get_by_id(self, payment_id: str) -> Optional[Payment]:
-        # Buscar pago por ID
-        pass
+        return self.db.get(Payment, payment_id)
 
-    def get_by_booking_id(self, booking_id: str) -> Optional[Payment]:
-        # Obtener pago asociado a una reserva
-        pass
+    def get_by_booking_id(self, booking_id: str, *, lock: bool = False) -> Optional[Payment]:
+        query = self.db.query(Payment).filter(Payment.booking_id == booking_id)
+        if lock:
+            query = query.populate_existing().with_for_update()
+        return query.first()
 
     def get_by_stripe_session(self, session_id: str) -> Optional[Payment]:
-        # Buscar pago por Session ID de Stripe Checkout
-        pass
+        return self.db.query(Payment).filter(Payment.stripe_checkout_session_id == session_id).first()
 
     def create(self, payment: Payment) -> Payment:
-        # Registrar transacción de pago
-        pass
+        self.db.add(payment)
+        self.db.flush()
+        return payment
 
     def update_status(self, payment_id: str, status: PaymentStatusEnum) -> Optional[Payment]:
-        # Actualizar estado del pago tras confirmación del Webhook
-        pass
+        payment = self.db.query(Payment).filter(Payment.id == payment_id).with_for_update().first()
+        if payment:
+            payment.status = status
+        return payment

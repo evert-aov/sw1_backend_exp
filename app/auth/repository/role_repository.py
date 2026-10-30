@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from sqlalchemy.orm import Session
+from sqlalchemy.dialects.postgresql import insert
 from app.auth.entity.role import Role
 
 
@@ -42,6 +43,13 @@ class RoleRepository:
             Role | None: Entidad `Role` encontrada o `None` si no existe.
         """
         return self.db.query(Role).filter(Role.name == name.upper().strip()).first()
+
+    def get_or_create_pending(self, name: str) -> Role:
+        """Obtiene un rol sin commit y resuelve altas concurrentes con su índice único."""
+        normalized = name.upper().strip()
+        self.db.execute(insert(Role).values(name=normalized, description=f"Perfil {normalized}")
+                        .on_conflict_do_nothing(index_elements=[Role.name]))
+        return self.get_by_name(normalized)
 
     def create(self, role: Role) -> Role:
         """

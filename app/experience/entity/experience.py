@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 import enum
-from sqlalchemy import Column, Integer, String, Text, Float, DateTime, ForeignKey, Enum, UUID
+from sqlalchemy import Column, Integer, String, Text, Numeric, DateTime, ForeignKey, Enum, UUID
 from sqlalchemy.orm import relationship
 from app.core.database import Base, generate_uuid
 
@@ -38,10 +38,11 @@ class Experience(Base):
     modality = Column(Enum(ModalityEnum), default=ModalityEnum.IN_PERSON, nullable=False)
     status = Column(Enum(ExperienceStatusEnum), default=ExperienceStatusEnum.OPEN, nullable=False)
 
-    price = Column(Float, default=0.0, nullable=False)  # Precio por cupo
+    price = Column(Numeric(14, 2), default=0, nullable=False)
     min_capacity = Column(Integer, default=5, nullable=False)  # Quórum mínimo
     max_capacity = Column(Integer, default=20, nullable=False)  # Cupo límite
     reserved_slots = Column(Integer, default=0, nullable=False)
+    quorum_generation = Column(Integer, default=0, nullable=False)
 
     event_date = Column(DateTime, nullable=False, index=True)
     duration_minutes = Column(Integer, default=120)

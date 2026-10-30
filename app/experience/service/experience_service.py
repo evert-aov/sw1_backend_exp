@@ -4,14 +4,24 @@ import math
 from datetime import datetime, timezone
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
+from app.core.pricing import quote_price
+from app.booking.entity.booking import Booking, BookingStatusEnum
+from sqlalchemy import select, delete
+from app.matching.entity.matching_group import MatchingGroup
+from app.matching.entity.matching_member import MatchingMember
 from app.experience.dto.experience_dto import (
     CatalogResponseDTO,
     ExperienceCreateDTO,
     ExperienceFilterDTO,
     ExperienceResponseDTO,
     ExperienceUpdateDTO,
+    HostedExperienceDTO,
 )
-from app.experience.entity.experience import Experience, ExperienceStatusEnum, ModalityEnum
+from app.experience.entity.experience import (
+    Experience,
+    ExperienceStatusEnum,
+    ModalityEnum,
+)
 from app.experience.mapper.experience_mapper import ExperienceMapper
 from app.experience.repository.category_repository import CategoryRepository
 from app.experience.repository.experience_repository import ExperienceRepository
@@ -85,7 +95,97 @@ class ExperienceService:
             user_longitude=user_longitude,
         )
 
-    def create_experience(self, host_id: str, dto: ExperienceCreateDTO) -> ExperienceResponseDTO:
+    def _management_flags(self, exp: Experience) -> dict:
+        now = datetime.now(timezone.utc)
+        history = bool(
+            self.db.scalar(
+                select(Booking.id).where(Booking.experience_id == exp.id).limit(1)
+            )
+        )
+        active = bool(exp.reserved_slots) or bool(
+            self.db.scalar(
+                select(Booking.id)
+                .where(
+                    Booking.experience_id == exp.id,
+                    (Booking.status == BookingStatusEnum.PAID)
+                    | (
+                        (Booking.status == BookingStatusEnum.PENDING)
+                        & (Booking.expires_at.is_(None) | (Booking.expires_at > now))
+                    ),
+                )
+                .limit(1)
+            )
+        )
+        members = bool(
+            self.db.scalar(
+                select(MatchingMember.id)
+                .join(MatchingGroup)
+                .where(MatchingGroup.experience_id == exp.id)
+                .limit(1)
+            )
+        )
+        editable_state = (
+            exp.status in {ExperienceStatusEnum.DRAFT, ExperienceStatusEnum.OPEN}
+            and self._ensure_utc(exp.event_date) > now
+        )
+        return {
+            "can_edit": editable_state and not active and not members,
+            "can_delete": not history
+            and not active
+            and not members
+            and exp.status
+            not in {ExperienceStatusEnum.LIVE, ExperienceStatusEnum.FINISHED},
+            "management_lock_reason": "ATTENDEES"
+            if active
+            else "MATCHING_MEMBERS"
+            if members
+            else "BOOKING_HISTORY"
+            if history
+            else "STATE"
+            if not editable_state
+            else None,
+        }
+
+    def _hosted_dto(self, exp: Experience) -> HostedExperienceDTO:
+        return HostedExperienceDTO(
+            **self._to_response_dto(exp).model_dump(), **self._management_flags(exp)
+        )
+
+    def get_my_hosted_experience(
+        self, experience_id: str, host_id: str
+    ) -> HostedExperienceDTO:
+        exp = self.experience_repo.get_by_id(experience_id)
+        if not exp or exp.host_id != host_id:
+            raise HTTPException(
+                status_code=404, detail="Experiencia propia no encontrada"
+            )
+        return self._hosted_dto(exp)
+
+    def delete_experience(self, experience_id: str, host_id: str) -> None:
+        try:
+            exp = self.experience_repo.get_by_id(experience_id, for_update=True)
+            if not exp or exp.host_id != host_id:
+                raise HTTPException(
+                    status_code=404, detail="Experiencia propia no encontrada"
+                )
+            if not self._management_flags(exp)["can_delete"]:
+                raise HTTPException(
+                    status_code=409,
+                    detail="No se puede eliminar: existen reservas, asistentes, postulaciones o actividad del evento. Se conserva el historial.",
+                )
+            self.db.execute(
+                delete(Experience)
+                .where(Experience.id == exp.id)
+                .execution_options(synchronize_session=False)
+            )
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
+
+    def create_experience(
+        self, host_id: str, dto: ExperienceCreateDTO
+    ) -> ExperienceResponseDTO:
         """
         Publica una nueva experiencia validando existencia de categoría, coherencia de aforos
         (`min_capacity` vs `max_capacity`), fecha futura, capacidad máxima del local físico y ausencia
@@ -136,11 +236,16 @@ class ExperienceService:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Se requiere especificar un establecimiento (venue_id) para modalidad presencial o híbrida",
                 )
-            venue = self.venue_repo.get_by_id(dto.venue_id)
+            venue = self.venue_repo.get_by_id(dto.venue_id, for_update=True)
             if not venue:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail=f"El establecimiento con ID {dto.venue_id} no existe",
+                )
+            if venue.owner_id != host_id:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Solo puedes publicar en un lugar de tu propiedad",
                 )
             if venue.max_capacity < dto.max_capacity:
                 raise HTTPException(
@@ -148,7 +253,9 @@ class ExperienceService:
                     detail=f"El aforo solicitado ({dto.max_capacity}) excede la capacidad máxima del local ({venue.max_capacity})",
                 )
 
-            if self.experience_repo.has_venue_overlap(dto.venue_id, dto.event_date, duration):
+            if self.experience_repo.has_venue_overlap(
+                dto.venue_id, dto.event_date, duration
+            ):
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"El establecimiento '{venue.name}' ya cuenta con otro evento programado en ese horario",
@@ -185,7 +292,19 @@ class ExperienceService:
             HTTPException (403): Si el usuario no es el anfitrión propietario de la experiencia.
             HTTPException (400): Si se violan reglas de negocio de estado, aforo, precio o horario.
         """
-        exp = self.experience_repo.get_by_id(experience_id)
+        # Orden consistente con configurar el lugar: lugares por ID → experiencia.
+        original = self.experience_repo.get_by_id(experience_id)
+        if not original or original.host_id != host_id:
+            raise HTTPException(
+                status_code=404, detail="Experiencia propia no encontrada"
+            )
+        original_venue_id = original.venue_id
+        venue_ids = sorted(
+            {str(value) for value in (original_venue_id, dto.venue_id) if value}
+        )
+        for venue_id in venue_ids:
+            self.venue_repo.get_by_id(venue_id, for_update=True)
+        exp = self.experience_repo.get_by_id(experience_id, for_update=True)
         if not exp:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -198,7 +317,19 @@ class ExperienceService:
                 detail="No tienes autorización para modificar esta experiencia",
             )
 
-        if exp.status in [ExperienceStatusEnum.CANCELLED, ExperienceStatusEnum.FINISHED]:
+        if exp.venue_id != original_venue_id:
+            raise HTTPException(
+                status_code=409, detail="La experiencia cambió; vuelve a cargarla"
+            )
+        if not self._management_flags(exp)["can_edit"]:
+            raise HTTPException(
+                status_code=409,
+                detail="Solo puedes editar experiencias futuras sin asistentes, reservas vigentes ni postulaciones",
+            )
+        if exp.status in [
+            ExperienceStatusEnum.CANCELLED,
+            ExperienceStatusEnum.FINISHED,
+        ]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"No se puede modificar una experiencia en estado {exp.status.value}",
@@ -217,13 +348,27 @@ class ExperienceService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="El cupo máximo no puede ser menor al aforo mínimo",
             )
-        if dto.max_capacity is not None and dto.max_capacity < exp.reserved_slots:
+        now = datetime.now(timezone.utc)
+        held_slots = sum(
+            booking.quantity
+            for booking in exp.bookings
+            if booking.status == BookingStatusEnum.PENDING
+            and (
+                booking.expires_at is None or self._ensure_utc(booking.expires_at) > now
+            )
+        )
+        committed_slots = exp.reserved_slots + held_slots
+        if dto.max_capacity is not None and dto.max_capacity < committed_slots:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"No se puede reducir la capacidad a {dto.max_capacity} porque ya existen {exp.reserved_slots} cupos reservados",
             )
 
-        if exp.reserved_slots > 0 and dto.price is not None and dto.price != exp.price:
+        if (
+            committed_slots > 0
+            and dto.price is not None
+            and quote_price(dto.price).unit_price != quote_price(exp.price).unit_price
+        ):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="No se puede modificar el precio porque ya existen cupos adquiridos para esta experiencia",
@@ -240,7 +385,9 @@ class ExperienceService:
             else (exp.duration_minutes or 120)
         )
 
-        if dto.event_date is not None and self._ensure_utc(dto.event_date) <= datetime.now(timezone.utc):
+        if dto.event_date is not None and self._ensure_utc(
+            dto.event_date
+        ) <= datetime.now(timezone.utc):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="La nueva fecha del evento debe ser estrictamente futura",
@@ -265,6 +412,10 @@ class ExperienceService:
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail=f"El establecimiento con ID {target_venue_id} no existe",
                 )
+            if venue.owner_id != host_id:
+                raise HTTPException(
+                    status_code=403, detail="El lugar debe pertenecer al anfitrión"
+                )
             if venue.max_capacity < max_cap:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -288,7 +439,7 @@ class ExperienceService:
             exp.title = dto.title.strip()
         if dto.description is not None:
             exp.description = dto.description.strip()
-        if dto.cover_image_url is not None:
+        if "cover_image_url" in dto.model_fields_set:
             exp.cover_image_url = dto.cover_image_url
         if dto.modality is not None:
             exp.modality = dto.modality
@@ -300,14 +451,16 @@ class ExperienceService:
             exp.max_capacity = dto.max_capacity
         if dto.duration_minutes is not None:
             exp.duration_minutes = dto.duration_minutes
-        if dto.virtual_meeting_url is not None:
+        if "virtual_meeting_url" in dto.model_fields_set:
             exp.virtual_meeting_url = dto.virtual_meeting_url
 
         updated = self.experience_repo.update(exp)
         loaded = self.experience_repo.get_by_id(updated.id)
         return self._to_response_dto(loaded or updated)
 
-    def cancel_experience(self, experience_id: str, host_id: str) -> ExperienceResponseDTO:
+    def cancel_experience(
+        self, experience_id: str, host_id: str
+    ) -> ExperienceResponseDTO:
         """
         Cancela una experiencia publicada cambiando su estado a `CANCELLED` (CU-04).
 
@@ -323,7 +476,7 @@ class ExperienceService:
             HTTPException (403): Si el usuario no es el anfitrión propietario.
             HTTPException (400): Si la experiencia ya estaba cancelada o finalizada.
         """
-        exp = self.experience_repo.get_by_id(experience_id)
+        exp = self.experience_repo.get_by_id(experience_id, for_update=True)
         if not exp:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -334,14 +487,24 @@ class ExperienceService:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="No tienes autorización para cancelar esta experiencia",
             )
-        if exp.status in [ExperienceStatusEnum.CANCELLED, ExperienceStatusEnum.FINISHED]:
+        if exp.status in [
+            ExperienceStatusEnum.CANCELLED,
+            ExperienceStatusEnum.FINISHED,
+        ]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"La experiencia ya se encuentra {exp.status.value.lower()}",
             )
 
-        exp.status = ExperienceStatusEnum.CANCELLED
-        updated = self.experience_repo.update(exp)
+        from app.booking.service.stripe_service import StripeService
+
+        try:
+            StripeService(self.db).queue_event_refunds(exp)
+            exp.status = ExperienceStatusEnum.CANCELLED
+            updated = self.experience_repo.update(exp)
+        except Exception:
+            self.db.rollback()
+            raise
         loaded = self.experience_repo.get_by_id(updated.id)
         return self._to_response_dto(loaded or updated)
 
@@ -349,7 +512,7 @@ class ExperienceService:
         self,
         host_id: str,
         status: ExperienceStatusEnum | None = None,
-    ) -> list[ExperienceResponseDTO]:
+    ) -> list[HostedExperienceDTO]:
         """
         Obtiene todas las experiencias publicadas por el anfitrión autenticado (CU-04).
 
@@ -361,7 +524,7 @@ class ExperienceService:
             list[ExperienceResponseDTO]: Lista de experiencias del anfitrión con desglose de comisiones.
         """
         experiences = self.experience_repo.get_by_host(host_id, status)
-        return [self._to_response_dto(e) for e in experiences]
+        return [self._hosted_dto(e) for e in experiences]
 
     def get_experience_by_id(self, experience_id: str) -> ExperienceResponseDTO:
         """
@@ -384,7 +547,9 @@ class ExperienceService:
             )
         return self._to_response_dto(exp)
 
-    def search_catalog(self, filters: ExperienceFilterDTO) -> CatalogResponseDTO:
+    def search_catalog(
+        self, filters: ExperienceFilterDTO, search_session: str | None = None
+    ) -> CatalogResponseDTO:
         """
         Explora y filtra el catálogo público de experiencias soportando búsqueda geoespacial
         por coordenadas (`latitude`, `longitude`, `radius_km`), zona urbana, categoría, modalidad,
@@ -428,7 +593,16 @@ class ExperienceService:
             )
             for e in experiences
         ]
-        total_pages = math.ceil(total_count / filters.page_size) if total_count > 0 else 1
+        total_pages = (
+            math.ceil(total_count / filters.page_size) if total_count > 0 else 1
+        )
+        from app.matching.service.demand_prediction_service import (
+            DemandPredictionService,
+        )
+
+        DemandPredictionService(self.db).record_catalog(
+            filters, total_count, search_session
+        )
         return CatalogResponseDTO(
             total=total_count,
             page=filters.page,

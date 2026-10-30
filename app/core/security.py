@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from hashlib import sha256
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any
 import bcrypt
@@ -8,6 +9,8 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
+from sqlalchemy.dialects.postgresql import insert
+from app.auth.entity.revoked_token import RevokedToken
 from app.auth.entity.user import User
 from app.auth.repository.user_repository import UserRepository
 from app.core.config import settings
@@ -16,10 +19,6 @@ from app.core.database import get_db
 # Esquema de autenticación Bearer para Swagger UI y clientes HTTP
 http_bearer = HTTPBearer(auto_error=False)
 oauth2_scheme = http_bearer  # Alias de compatibilidad
-
-# Registro en memoria de tokens JWT revocados mediante Logout (CU-02)
-_revoked_tokens: set[str] = set()
-
 
 def normalize_bearer_token(token: str) -> str:
     """
@@ -37,19 +36,28 @@ def normalize_bearer_token(token: str) -> str:
     return clean_token
 
 
-def revoke_token(token: str) -> None:
+def revoke_token(token: str, db: Session) -> None:
     """
-    Revoca e invalida un token JWT activo agregándolo a la lista negra de sesión cerrada (CU-02 Logout).
+    Persiste la huella del JWT revocado en PostgreSQL para todos los procesos (CU-01).
 
     Args:
         token (str): Token JWT que se desea invalidar.
     """
     clean_token = normalize_bearer_token(token)
-    if clean_token:
-        _revoked_tokens.add(clean_token)
+    payload = decode_token(clean_token)
+    statement = insert(RevokedToken).values(
+        token_hash=sha256(clean_token.encode()).hexdigest(),
+        expires_at=datetime.fromtimestamp(payload["exp"], timezone.utc),
+    ).on_conflict_do_nothing(index_elements=[RevokedToken.token_hash])
+    try:
+        db.execute(statement)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
 
-def is_token_revoked(token: str) -> bool:
+def is_token_revoked(token: str, db: Session) -> bool:
     """
     Verifica si un token JWT ha sido revocado previamente mediante cierre de sesión (Logout).
 
@@ -59,14 +67,8 @@ def is_token_revoked(token: str) -> bool:
     Returns:
         bool: `True` si el token fue revocado, `False` en caso contrario.
     """
-    return normalize_bearer_token(token) in _revoked_tokens
-
-
-def clear_revoked_tokens() -> None:
-    """
-    Limpia el registro en memoria de tokens revocados (útil al reiniciar la base de datos en pruebas).
-    """
-    _revoked_tokens.clear()
+    fingerprint = sha256(normalize_bearer_token(token).encode()).hexdigest()
+    return db.get(RevokedToken, fingerprint) is not None
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -133,7 +135,7 @@ def create_access_token(
     return jwt.encode(to_encode, settings.JWT_SECRET, algorithm=settings.ALGORITHM)
 
 
-def decode_token(token: str) -> dict[str, Any]:
+def decode_token(token: str, db: Session | None = None) -> dict[str, Any]:
     """
     Decodifica y valida la firma criptográfica, vigencia temporal y estado de revocación de un token JWT.
 
@@ -147,19 +149,16 @@ def decode_token(token: str) -> dict[str, Any]:
         HTTPException (401): Si el token fue revocado por logout, es inválido o ha expirado.
     """
     clean_token = normalize_bearer_token(token)
-    if is_token_revoked(clean_token):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token revocado. La sesión ha sido cerrada (Logout).",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
 
     try:
         payload: dict[str, Any] = jwt.decode(
             clean_token,
             settings.JWT_SECRET,
             algorithms=[settings.ALGORITHM],
+            options={"require_exp": True, "require_sub": True},
         )
+        if db is not None and is_token_revoked(clean_token, db):
+            raise HTTPException(status_code=401, detail="Token revocado", headers={"WWW-Authenticate": "Bearer"})
         return payload
     except JWTError as exc:
         raise HTTPException(
@@ -218,7 +217,7 @@ def get_current_user(
         )
 
     token_str = normalize_bearer_token(auth.credentials)
-    payload = decode_token(token_str)
+    payload = decode_token(token_str, db)
     user_id_str: str | None = payload.get("sub")
     if not user_id_str:
         raise HTTPException(

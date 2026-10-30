@@ -4,7 +4,7 @@ from app.core.database import get_db
 from app.live.dto.live_dto import PostEventReportDTO
 from app.live.service.smart_host_service import PostEventReportService
 
-report_router = APIRouter(prefix="/reports", tags=["Post-Event Analytics Report Controller (CU-13)"])
+report_router = APIRouter(prefix="/reports", tags=["Post-Event Analytics Report Controller (CU-12)"])
 
 
 @report_router.get("/{session_id}", response_model=PostEventReportDTO)

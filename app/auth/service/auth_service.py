@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from app.auth.dto.auth_dto import (
     LoginDTO,
     LogoutResponseDTO,
@@ -29,7 +30,7 @@ class AuthService:
     Implementa la lógica de registro seguro con bcrypt, inicio de sesión, renovación y cierre de sesión JWT.
     """
 
-    VALID_ROLES: set[str] = {"ATTENDEE", "HOST", "VENUE", "ADMIN"}
+    VALID_ROLES: set[str] = {"ATTENDEE", "HOST"}
 
     def __init__(self, db: Session) -> None:
         """
@@ -56,25 +57,15 @@ class AuthService:
         Raises:
             HTTPException (400): Si el correo electrónico ya se encuentra registrado o el rol es inválido.
         """
+        role_name = (dto.role or "ATTENDEE").upper().strip()
+        if role_name not in self.VALID_ROLES:
+            raise HTTPException(status_code=400, detail="Rol de registro no permitido")
         normalized_email = dto.email.lower().strip()
         existing_user = self.user_repo.get_by_email(normalized_email)
         if existing_user:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="El correo electrónico ya se encuentra registrado",
-            )
-
-        role_name = (dto.role or "ATTENDEE").upper().strip()
-        if role_name not in self.VALID_ROLES:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Rol '{role_name}' no válido. Roles permitidos: {sorted(self.VALID_ROLES)}",
-            )
-
-        role = self.role_repo.get_by_name(role_name)
-        if not role:
-            role = self.role_repo.create(
-                Role(name=role_name, description=f"Perfil asignado para {role_name}")
             )
 
         normalized_interests = (
@@ -94,10 +85,21 @@ class AuthService:
             is_active=True,
             interests=normalized_interests,
         )
-        created_user = self.user_repo.create(new_user)
-
-        self.user_repo.assign_role(created_user.id, role.id)
-        user_roles = [role.name]
+        try:
+            role = self.role_repo.get_or_create_pending(role_name)
+            created_user = self.user_repo.create(new_user, commit=False)
+            self.user_repo.assign_role(created_user.id, role.id, commit=False)
+            self.db.commit()
+        except IntegrityError as error:
+            self.db.rollback()
+            raise HTTPException(
+                status_code=400,
+                detail="No se pudo registrar una cuenta con estos datos",
+            ) from error
+        except Exception:
+            self.db.rollback()
+            raise
+        user_roles = [role_name]
 
         return ProfileDTO(
             id=created_user.id,
@@ -113,7 +115,9 @@ class AuthService:
             created_at=created_user.created_at,
         )
 
-    def login(self, dto: LoginDTO) -> TokenResponseDTO:
+    def login(
+        self, dto: LoginDTO, *, required_role: str | None = None
+    ) -> TokenResponseDTO:
         """
         Autentica a un usuario verificando su correo electrónico y contraseña contra el hash bcrypt,
         emitiendo un token de acceso JWT firmado (CU-02 / HU-02).
@@ -144,6 +148,11 @@ class AuthService:
             )
 
         user_roles = self.user_repo.get_user_roles(user.id)
+        if required_role and required_role not in user_roles:
+            raise HTTPException(
+                status_code=403,
+                detail="La aplicación móvil requiere el rol ATTENDEE. Usa el panel web para tu cuenta.",
+            )
         access_token = create_access_token(subject=str(user.id))
 
         return TokenResponseDTO(
@@ -166,7 +175,7 @@ class AuthService:
         Returns:
             LogoutResponseDTO: Confirmación de cierre de sesión y marca de tiempo UTC.
         """
-        revoke_token(token)
+        revoke_token(token, self.db)
         return LogoutResponseDTO(
             status="success",
             message="Sesión cerrada correctamente. El token JWT ha sido revocado.",
@@ -188,7 +197,7 @@ class AuthService:
         Raises:
             HTTPException (401): Si el token no contiene sujeto válido o el usuario está inactivo.
         """
-        payload = decode_token(token)
+        payload = decode_token(token, self.db)
         user_id_str = payload.get("sub")
         if not user_id_str:
             raise HTTPException(

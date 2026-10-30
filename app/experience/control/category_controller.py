@@ -16,7 +16,7 @@ category_router = APIRouter(prefix="/categories", tags=["Categories Controller"]
     "",
     response_model=list[CategoryDTO],
     status_code=status.HTTP_200_OK,
-    summary="Listar todas las categorías temáticas (CU-04, CU-05)",
+    summary="Listar todas las categorías temáticas (CU-03, CU-04)",
     description="Obtiene el catálogo completo de categorías temáticas disponibles para clasificar y filtrar experiencias.",
     response_description="Lista de categorías temáticas",
 )
@@ -66,7 +66,7 @@ def get_category(
     "",
     response_model=CategoryDTO,
     status_code=status.HTTP_201_CREATED,
-    summary="Crear una nueva categoría temática (CU-04)",
+    summary="Crear una nueva categoría temática (CU-03)",
     description="Permite a un usuario con rol `ADMIN` o `HOST` registrar una nueva categoría temática.",
     response_description="Categoría creada exitosamente",
 )

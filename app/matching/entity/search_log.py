@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, UUID
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, UUID, JSON
 from app.core.database import Base, generate_uuid
 
 
@@ -13,4 +13,6 @@ class SearchLog(Base):
     category = Column(String(100), nullable=True)
     zone = Column(String(100), nullable=True)
     found_results = Column(Boolean, default=True)
+    dedupe_key = Column(String(64), unique=True, nullable=True)
+    search_filters = Column(JSON, nullable=False, default=dict)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

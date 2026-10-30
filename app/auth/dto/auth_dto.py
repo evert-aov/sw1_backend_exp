@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Literal
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
@@ -56,7 +57,7 @@ class RegisterDTO(BaseModel):
     phone: str | None = Field(default=None, max_length=20, description="Número de teléfono móvil")
     role: str | None = Field(
         default="ATTENDEE",
-        description="Rol inicial asignado: ATTENDEE, HOST, VENUE o ADMIN",
+        description="Rol público inicial: ATTENDEE, HOST o VENUE; ADMIN no admite autorregistro",
     )
     avatar_url: str | None = Field(
         default=None,
@@ -160,6 +161,13 @@ class PreferencesUpdateDTO(BaseModel):
     )
     bio: str | None = Field(default=None, max_length=1000, description="Biografía opcional actualizada")
     avatar_url: str | None = Field(default=None, max_length=255, description="URL de avatar opcional")
+
+
+class RoleSwitchDTO(BaseModel):
+    """Cambio autorizado entre perfiles públicos, sin permitir asignación administrativa."""
+
+    model_config = ConfigDict(extra="forbid")
+    role: Literal["ATTENDEE", "HOST"]
 
 
 class ProfileDTO(BaseModel):

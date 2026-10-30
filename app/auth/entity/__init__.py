@@ -1,5 +1,6 @@
 from app.auth.entity.role import Role
 from app.auth.entity.user import User
 from app.auth.entity.user_role import UserRole
+from app.auth.entity.revoked_token import RevokedToken
 
-__all__ = ["Role", "User", "UserRole"]
+__all__ = ["Role", "User", "UserRole", "RevokedToken"]

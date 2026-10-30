@@ -3,9 +3,12 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy.orm import Session
-from app.booking.dto.booking_dto import CheckoutSessionDTO
+from app.booking.dto.booking_dto import BookingResponseDTO, CheckoutSessionDTO
+from starlette.concurrency import run_in_threadpool
 from app.booking.service.stripe_service import StripeService
 from app.core.database import get_db
+from app.auth.entity.user import User
+from app.core.security import get_current_active_user, RoleChecker
 
 payment_router = APIRouter(prefix="/payments", tags=["Payment & Stripe Controller"])
 
@@ -14,15 +17,16 @@ payment_router = APIRouter(prefix="/payments", tags=["Payment & Stripe Controlle
     "/checkout/{booking_id}",
     response_model=CheckoutSessionDTO,
     status_code=status.HTTP_200_OK,
-    summary="Iniciar sesión de pago en Stripe Checkout (CU-06)",
+    summary="Iniciar sesión de pago en Stripe Checkout (CU-05)",
     description="Genera una sesión de pago segura en Stripe Checkout para completar una reserva.",
 )
 def create_checkout(
     booking_id: str,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(RoleChecker(["ATTENDEE"]))],
 ) -> CheckoutSessionDTO:
     """
-    Crea una sesión de pago en Stripe Checkout para la reserva indicada (Sprint 2 - CU-06).
+    Crea una sesión de pago en Stripe Checkout para la reserva indicada (Sprint 2 - CU-05).
 
     Args:
         booking_id (str): ID de la reserva a pagar.
@@ -32,7 +36,9 @@ def create_checkout(
         CheckoutSessionDTO: URL de pago e identificador de sesión de Stripe.
     """
     service = StripeService(db)
-    return service.create_checkout_session(booking_id=booking_id)
+    return service.create_checkout_session(
+        booking_id=booking_id, user_id=current_user.id
+    )
 
 
 @payment_router.post(
@@ -46,7 +52,7 @@ async def stripe_webhook(
     db: Annotated[Session, Depends(get_db)],
 ) -> dict[str, Any]:
     """
-    Procesa los eventos asíncronos enviados por el Webhook de Stripe (Sprint 2 - CU-06).
+    Procesa los eventos asíncronos enviados por el Webhook de Stripe (Sprint 2 - CU-05).
 
     Args:
         request (Request): Petición HTTP entrante con firma de Stripe.
@@ -58,4 +64,26 @@ async def stripe_webhook(
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature", "")
     service = StripeService(db)
-    return service.handle_webhook_event(payload=payload, sig_header=sig_header)
+    return await run_in_threadpool(
+        service.handle_webhook_event, payload=payload, sig_header=sig_header
+    )
+
+
+@payment_router.post("/status/{booking_id}", response_model=BookingResponseDTO)
+def reconcile_payment(
+    booking_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(RoleChecker(["ATTENDEE"]))],
+) -> BookingResponseDTO:
+    """Consulta al proveedor desde el backend después del retorno del checkout."""
+    return StripeService(db).reconcile_booking(booking_id, current_user.id)
+
+
+@payment_router.post("/refund/{booking_id}", response_model=BookingResponseDTO)
+def refund_payment(
+    booking_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(RoleChecker(["ATTENDEE"]))],
+) -> BookingResponseDTO:
+    """Solicita devolución completa propia antes del evento y sin entradas usadas."""
+    return StripeService(db).request_refund(booking_id, current_user.id)

@@ -15,7 +15,7 @@ from app.core.security import get_current_active_user
 
 subscription_router = APIRouter(
     prefix="/subscriptions",
-    tags=["SaaS Subscriptions Controller (CU-14)"],
+    tags=["SaaS Subscriptions Controller (CU-13)"],
 )
 
 
@@ -23,14 +23,14 @@ subscription_router = APIRouter(
     "/plans",
     response_model=list[SaaSPlanDTO],
     status_code=status.HTTP_200_OK,
-    summary="Listar planes de suscripción SaaS Pro disponibles (CU-14 / HU-23)",
+    summary="Listar planes de suscripción SaaS Pro disponibles (CU-13 / HU-23)",
     description="Consulta el catálogo de planes SaaS recurrentes para anfitriones y establecimientos.",
 )
 def list_plans(
     _db: Annotated[Session, Depends(get_db)],
 ) -> list[SaaSPlanDTO]:
     """
-    Lista los planes de suscripción SaaS Pro disponibles en la plataforma (Sprint 2/4 - CU-14).
+    Lista los planes de suscripción SaaS Pro disponibles en la plataforma (Sprint 2/4 - CU-13).
 
     Args:
         _db (Session): Sesión activa de base de datos.
@@ -45,7 +45,7 @@ def list_plans(
     "/subscribe",
     response_model=SubscriptionResponseDTO,
     status_code=status.HTTP_201_CREATED,
-    summary="Suscribirse a un Plan Pro SaaS (CU-14 / HU-23)",
+    summary="Suscribirse a un Plan Pro SaaS (CU-13 / HU-23)",
     description="Inicia la suscripción recurrente de un anfitrión o establecimiento a un plan Pro.",
 )
 def subscribe_to_plan(
@@ -54,7 +54,7 @@ def subscribe_to_plan(
     current_user: Annotated[User, Depends(get_current_active_user)],
 ) -> SubscriptionResponseDTO:
     """
-    Registra la suscripción de un usuario a un plan SaaS Pro mediante Stripe Billing (CU-14).
+    Registra la suscripción de un usuario a un plan SaaS Pro mediante Stripe Billing (CU-13).
 
     Args:
         dto (SubscriptionCreateDTO): Datos del plan seleccionado.

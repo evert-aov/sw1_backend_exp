@@ -9,7 +9,7 @@ from app.live.dto.live_dto import (
 from app.live.service.computer_vision_service import ComputerVisionService
 from app.live.service.smart_host_service import SmartHostService
 
-live_router = APIRouter(prefix="/live", tags=["Live & WebSocket Controller (CU-09, CU-10, CU-11, CU-12)"])
+live_router = APIRouter(prefix="/live", tags=["Live & WebSocket Controller (CU-08, CU-09, CU-10, CU-11)"])
 
 
 @live_router.post("/session", status_code=status.HTTP_201_CREATED)
