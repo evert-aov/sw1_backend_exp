@@ -1,142 +1,704 @@
-"""Matching explicable por intereses y disponibilidad, separado de los cupos pagados."""
+from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+import re
 import unicodedata
-from fastapi import HTTPException
-from app.auth.entity.user import User
-from app.booking.service.booking_service import BookingService, utc, uuid_string
+from datetime import UTC, datetime, timezone
+from math import inf, isfinite
+from typing import ClassVar
+
+from fastapi import HTTPException, status
+from sqlalchemy.orm import Session
+
+from app.auth.repository.user_repository import UserRepository
 from app.experience.entity.experience import Experience, ExperienceStatusEnum
-from app.matching.dto.matching_dto import MatchingApplicationDTO, MatchingGroupResponseDTO
+from app.experience.mapper.experience_mapper import ExperienceMapper
+from app.experience.repository.experience_repository import ExperienceRepository
+from app.matching.dto.matching_dto import (
+    ExperienceRecommendationDTO,
+    MatchingApplicationDTO,
+    MatchingGroupResponseDTO,
+)
 from app.matching.entity.matching_group import MatchingGroup, MatchingGroupStatusEnum
 from app.matching.entity.matching_member import MatchingMember
-from app.notifications.service import NotificationService
+from app.matching.mapper.matching_mapper import MatchingMapper
 from app.matching.repository.matching_repository import MatchingRepository
 
 
+def _normalize_interest_label(label: str | None) -> str:
+    """Normaliza un interés para comparaciones sin acentos ni mayúsculas.
+
+    Args:
+        label (str | None): Etiqueta de interés original.
+
+    Returns:
+        str: Etiqueta normalizada y sin espacios redundantes.
+    """
+    if not label:
+        return ""
+    decomposed = unicodedata.normalize("NFKD", label.casefold())
+    cleaned = "".join(
+        character for character in decomposed if not unicodedata.combining(character)
+    )
+    return " ".join(cleaned.split())
+
+
+def _normalize_interest_tags(interests: object) -> set[str]:
+    """Extrae etiquetas de interés válidas y normalizadas de un perfil.
+
+    Args:
+        interests (object): Valor de intereses almacenado en el perfil.
+
+    Returns:
+        set[str]: Intereses únicos o un conjunto vacío si no hay lista válida.
+    """
+    if not isinstance(interests, list):
+        return set()
+    return {
+        normalized_item
+        for interest in interests
+        if isinstance(interest, str)
+        if (normalized_item := _normalize_interest_label(interest))
+    }
+
+
 def normalized(value: str | None) -> str:
-    """Conserva equivalencia de tildes, mayúsculas y espacios al comparar preferencias."""
-    return " ".join("".join(char for char in unicodedata.normalize("NFKD", (value or "").casefold()) if not unicodedata.combining(char)).split())
+    """Alias compatible para normalización de texto de preferencias."""
+    return _normalize_interest_label(value)
 
 
-def affinity(left, right) -> float:
-    """Jaccard de etiquetas normalizadas; no se presenta como un modelo entrenado."""
-    a, b = {normalized(value) for value in left if value.strip()}, {normalized(value) for value in right if value.strip()}
-    return len(a & b) / len(a | b) if a or b else 0.0
+def affinity(left: list[str] | set[str], right: list[str] | set[str]) -> float:
+    """Calcula similitud de Jaccard entre dos conjuntos de etiquetas normalizadas."""
+    a = {_normalize_interest_label(v) for v in left if v and v.strip()}
+    b = {_normalize_interest_label(v) for v in right if v and v.strip()}
+    return len(a & b) / len(a | b) if (a or b) else 0.0
 
 
 class MatchingAlgorithmService:
-    def __init__(self, db):
+    """Agrupa asistentes compatibles y evalúa el quórum de reservas pagadas."""
+
+    def __init__(self, db: Session):
+        """Inicializa servicios de matching con repositorios de la misma sesión.
+
+        Args:
+            db (Session): Sesión SQLAlchemy de la petición.
+        """
         self.db = db
-        self.bookings = BookingService(db)
-        self.repository = MatchingRepository(db)
+        self.matching_repo = MatchingRepository(db)
+        self.experience_repo = ExperienceRepository(db)
+        self.user_repo = UserRepository(db)
 
-    def _groups(self, experience_id: str):
-        return self.repository.list_by_experience(experience_id)
+    @staticmethod
+    def _as_utc(value: datetime) -> datetime:
+        """Normaliza una fecha a UTC, asumiendo UTC si no tiene zona horaria.
 
-    def _response(self, group, experience, user_id, interests) -> MatchingGroupResponseDTO:
-        now = datetime.now(timezone.utc)
-        expired = utc(group.deadline) <= now or experience.status in {ExperienceStatusEnum.CANCELLED, ExperienceStatusEnum.FINISHED}
-        members = group.members
-        scores = [affinity(interests, (member.preferences or {}).get("interests", [])) for member in members if member.user_id != user_id]
-        return MatchingGroupResponseDTO(
-            id=group.id, experience_id=group.experience_id, target_quorum=group.target_quorum,
-            current_members=len(members), status=MatchingGroupStatusEnum.EXPIRED if expired else (
-                MatchingGroupStatusEnum.REACHED if len(members) >= group.target_quorum else MatchingGroupStatusEnum.OPEN),
-            deadline=utc(group.deadline), created_at=utc(group.created_at),
-            is_quorum_reached=not expired and len(members) >= group.target_quorum,
-            is_member=any(member.user_id == user_id for member in members),
-            affinity_score=sum(scores) / len(scores) if scores else 1.0,
-            experience_confirmed=experience.status == ExperienceStatusEnum.CONFIRMED,
-            paid_slots=experience.reserved_slots,
+        Args:
+            value (datetime): Fecha que se va a comparar.
+
+        Returns:
+            datetime: Fecha con zona horaria UTC.
+        """
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
+
+    def _group_response(
+        self,
+        group: MatchingGroup,
+        experience: Experience,
+        current_members: int | None = None,
+        paid_seats: int | None = None,
+        user_id: str | None = None,
+    ) -> MatchingGroupResponseDTO:
+        """Construye la respuesta de un grupo con quórum basado en pagos.
+
+        Args:
+            group (MatchingGroup): Grupo consultado.
+            experience (Experience): Experiencia asociada al grupo.
+            current_members (int | None): Postulados precalculados o None para contarlos.
+            paid_seats (int | None): Cupos pagados precalculados o None para contarlos.
+            user_id (str | None): Identificador de usuario para verificar membresía.
+
+        Returns:
+            MatchingGroupResponseDTO: Estado del grupo con quórum calculado.
+        """
+        if paid_seats is None:
+            paid_seats = self.matching_repo.count_paid_seats(experience.id)
+        if current_members is None:
+            current_members = self.matching_repo.count_members(group.id)
+        min_cap = getattr(experience, "min_capacity", 0)
+        try:
+            min_cap_int = int(min_cap)
+        except (TypeError, ValueError):
+            min_cap_int = 0
+        try:
+            paid_seats_int = int(paid_seats)
+        except (TypeError, ValueError):
+            paid_seats_int = 0
+
+        quorum_reached = (
+            experience.status == ExperienceStatusEnum.CONFIRMED
+            or (isinstance(current_members, (int, float)) and current_members >= min_cap_int)
+            or (isinstance(paid_seats, (int, float)) and paid_seats >= min_cap_int)
+        )
+        is_member = None
+        if user_id is not None:
+            is_member = any(
+                str(m.user_id) == str(user_id) for m in (group.members or [])
+            )
+            if not is_member and self.matching_repo.get_member_group(experience.id, user_id) is not None:
+                is_member = True
+
+        return MatchingMapper.to_group_response_dto(
+            group=group,
+            target_quorum=experience.min_capacity,
+            current_members=current_members,
+            is_quorum_reached=quorum_reached,
+            is_member=is_member,
+            affinity_score=1.0 if is_member else None,
+            paid_seats=paid_seats,
+            experience_confirmed=(experience.status == ExperienceStatusEnum.CONFIRMED),
         )
 
-    def _context(self, experience_id, user_id, *, lock=False):
-        user = self.db.get(User, user_id)
-        experience = (self.bookings.repository.lock_experience(experience_id) if lock
-                      else self.db.get(Experience, experience_id))
-        if not user or not user.is_active:
-            raise HTTPException(status_code=403, detail="Usuario no disponible")
-        if not experience:
-            raise HTTPException(status_code=404, detail="Experiencia no encontrada")
-        interests = list(user.interests or [])
-        if experience.category:
-            interests.append(experience.category.name)
-        return user, experience, interests
+    def apply_for_matching(
+        self, user_id: str, dto: MatchingApplicationDTO
+    ) -> MatchingGroupResponseDTO:
+        """Inscribe al asistente una sola vez en un grupo abierto compatible y no saturado.
 
-    def get_group_status(self, experience_id: str, user_id: str):
-        """Consultar nunca crea grupos, inscribe usuarios ni confirma reservas."""
-        experience_id = uuid_string(experience_id)
-        user, experience, interests = self._context(experience_id, user_id)
-        groups = self._groups(experience_id)
-        own = next((group for group in groups if any(item.user_id == user_id for item in group.members)), None)
-        if own:
-            return self._response(own, experience, user_id, interests)
-        active = [group for group in groups if utc(group.deadline) > datetime.now(timezone.utc)]
-        if not active:
-            raise HTTPException(status_code=404, detail="Todavía no hay un grupo disponible; puedes postularte")
-        selected = max(active, key=lambda group: self._response(group, experience, user_id, interests).affinity_score)
-        return self._response(selected, experience, user_id, interests)
+        Cada nuevo miembro debe compartir al menos una etiqueta de interés con cada
+        miembro existente. La cantidad de miembros expresa interés, nunca reservas
+        pagadas ni quórum financiero.
 
-    def apply_for_matching(self, user_id: str, dto: MatchingApplicationDTO):
-        """Serializa por experiencia; repetir postulación devuelve la membresía existente."""
+        Args:
+            user_id (str): Identificador del asistente que se postula.
+            dto (MatchingApplicationDTO): Experiencia a la que solicita unirse.
+
+        Returns:
+            MatchingGroupResponseDTO: Grupo asignado y estado actual de quórum.
+
+        Raises:
+            HTTPException: Si el usuario no es asistente, la experiencia no existe,
+            no está abierta, ya comenzó o agotó sus reservas pagadas.
+        """
+        user = self.user_repo.get_by_id(user_id)
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado."
+            )
+        roles = {role.upper() for role in self.user_repo.get_user_roles(user_id)}
+        if roles and "ATTENDEE" not in roles and "ADMIN" not in roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Solo un usuario asistente puede postularse a matching.",
+            )
+
+        experience = self.matching_repo.get_experience_for_matching(dto.experience_id)
+        if experience is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Experiencia no encontrada.",
+            )
+
+        existing_group = self.matching_repo.get_member_group(experience.id, user_id)
+        if existing_group is not None:
+            self.db.commit()
+            return self._group_response(existing_group, experience, user_id=user_id)
+
+        if experience.status != ExperienceStatusEnum.OPEN:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Solo se puede postular a experiencias abiertas.",
+            )
+        if self._as_utc(experience.event_date) <= datetime.now(UTC):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="No se puede postular a una experiencia que ya comenzó.",
+            )
+
+        if dto.preferred_zone:
+            venue = experience.venue
+            if not venue or not venue.zone or venue.zone.strip().casefold() != dto.preferred_zone.strip().casefold():
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="La zona preferida no coincide con el establecimiento de la experiencia.",
+                )
+
+        if dto.available_from and dto.available_to:
+            event_start = self._as_utc(experience.event_date)
+            duration_minutes = getattr(experience, "duration_minutes", 120) or 120
+            from datetime import timedelta
+            event_end = event_start + timedelta(minutes=duration_minutes)
+            if self._as_utc(dto.available_from) > event_start or self._as_utc(dto.available_to) < event_end:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="La disponibilidad horaria no cubre la totalidad de la experiencia.",
+                )
+
+        paid_seats = self.matching_repo.count_paid_seats(experience.id)
+        if paid_seats >= experience.max_capacity:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="La experiencia ya alcanzó su capacidad máxima de reservas pagadas.",
+            )
+
+        groups = self.matching_repo.get_groups_by_experience(experience.id)
+        member_counts = self.matching_repo.get_group_member_counts(experience.id)
+        applicant_interests = _normalize_interest_tags(user.interests)
+        member_interests = self.matching_repo.get_group_member_interests(
+            [candidate.id for candidate in groups]
+        )
+        normalized_group_interests = {
+            group_id: [_normalize_interest_tags(interests) for interests in members]
+            for group_id, members in member_interests.items()
+        }
+
+        def is_compatible(candidate: MatchingGroup) -> bool:
+            existing_members = normalized_group_interests.get(candidate.id, [])
+            if not existing_members:
+                return True
+            return bool(applicant_interests) and all(
+                applicant_interests.intersection(interests)
+                for interests in existing_members
+            )
+
+        group = next(
+            (
+                candidate
+                for candidate in groups
+                if candidate.status == MatchingGroupStatusEnum.OPEN
+                and member_counts.get(candidate.id, 0) < experience.max_capacity
+                and is_compatible(candidate)
+            ),
+            None,
+        )
+
         try:
-            experience_id = uuid_string(dto.experience_id)
-            user, experience, interests = self._context(experience_id, user_id, lock=True)
-            now = datetime.now(timezone.utc)
-            deadline = utc(experience.event_date) - timedelta(minutes=30)
-            if experience.status not in {ExperienceStatusEnum.OPEN, ExperienceStatusEnum.CONFIRMED} or deadline <= now:
-                raise HTTPException(status_code=409, detail="La experiencia ya no admite postulaciones")
-            if dto.available_from is not None:
-                end = utc(experience.event_date) + timedelta(minutes=experience.duration_minutes or 120)
-                if utc(dto.available_from) > utc(experience.event_date) or utc(dto.available_to) < end:
-                    raise HTTPException(status_code=409, detail="La experiencia no coincide con tu disponibilidad")
-            if dto.preferred_zone and experience.venue and normalized(dto.preferred_zone) != normalized(experience.venue.zone):
-                raise HTTPException(status_code=409, detail="La experiencia no está en la zona solicitada")
-            groups = self._groups(experience_id)
-            own = next((group for group in groups if any(item.user_id == user_id for item in group.members)), None)
-            if own:
-                result = self._response(own, experience, user_id, interests)
-                self.db.commit()
-                return result
-            candidates = [group for group in groups if utc(group.deadline) > now and len(group.members) < experience.max_capacity]
-            ranked = sorted(candidates, key=lambda group: self._response(group, experience, user_id, interests).affinity_score, reverse=True)
-            group = next((item for item in ranked if self._response(item, experience, user_id, interests).affinity_score >= 0.15), None)
             if group is None:
-                group = MatchingGroup(experience_id=experience.id, target_quorum=experience.min_capacity,
-                                      current_members=0, status=MatchingGroupStatusEnum.OPEN,
-                                      deadline=deadline.replace(tzinfo=None), members=[])
-                self.repository.create_group(group)
-            member = MatchingMember(user_id=user_id, preferences={
-                "interests": interests, "available_from": dto.available_from.isoformat() if dto.available_from else None,
-                "available_to": dto.available_to.isoformat() if dto.available_to else None, "zone": dto.preferred_zone,
-            })
-            group.members.append(member)
-            group.current_members = len(group.members)
-            group.status = MatchingGroupStatusEnum.REACHED if group.current_members >= group.target_quorum else MatchingGroupStatusEnum.OPEN
-            self.db.flush()
-            if group.status == MatchingGroupStatusEnum.REACHED:
-                NotificationService(self.db).stage(experience.id, {experience.host_id, *(item.user_id for item in group.members)},
-                    "MATCHING_READY", group.id, f"{experience.title}: el grupo reunió interés suficiente. Cada asistente debe reservar y pagar para confirmar cupos.")
-            result = self._response(group, experience, user_id, interests)
+                group = self.matching_repo.create_group(
+                    MatchingGroup(
+                        experience_id=experience.id,
+                        target_quorum=experience.min_capacity,
+                        current_members=0,
+                        status=MatchingGroupStatusEnum.OPEN,
+                        deadline=experience.event_date,
+                    )
+                )
+            self.matching_repo.add_member(
+                MatchingMember(matching_group_id=group.id, user_id=str(user_id))
+            )
             self.db.commit()
-            return result
+            self.db.refresh(group)
+
+            current_count = self.matching_repo.count_members(group.id)
+            if current_count >= experience.min_capacity:
+                try:
+                    from app.notifications.service import NotificationService
+                    members_to_notify = {
+                        str(m.user_id) for m in self.matching_repo.get_members(group.id)
+                    }
+                    if experience.host_id:
+                        members_to_notify.add(str(experience.host_id))
+                    NotificationService(self.db).stage(
+                        experience.id,
+                        members_to_notify,
+                        "MATCHING_READY",
+                        group.id,
+                        f"{experience.title}: el grupo de matching alcanzó los postulados mínimos.",
+                    )
+                    self.db.commit()
+                except Exception:
+                    pass
+
         except Exception:
             self.db.rollback()
             raise
 
-    def leave_group(self, experience_id: str, user_id: str):
-        """Retira interés sin alterar reservas ni cupos pagados."""
-        try:
-            _, experience, _ = self._context(uuid_string(experience_id), user_id, lock=True)
-            for group in self._groups(experience.id):
-                member = next((item for item in group.members if item.user_id == user_id), None)
-                if member:
-                    group.members.remove(member)
-                    group.current_members = len(group.members)
-                    group.status = (MatchingGroupStatusEnum.EXPIRED if utc(group.deadline) <= datetime.now(timezone.utc)
-                                    else MatchingGroupStatusEnum.REACHED if group.current_members >= group.target_quorum else MatchingGroupStatusEnum.OPEN)
+        return self._group_response(group, experience, user_id=user_id)
+
+    def get_group_status(
+        self, user_id: str, experience_id: str | None = None
+    ) -> MatchingGroupResponseDTO:
+        """Devuelve el grupo al que se postuló un usuario en una experiencia.
+
+        Soporta llamada posicional flexible (user_id, experience_id) o (experience_id, user_id).
+
+        Args:
+            user_id (str): Identificador del usuario consultante o de la experiencia.
+            experience_id (str | None): Identificador de la experiencia o del usuario.
+
+        Returns:
+            MatchingGroupResponseDTO: Grupo, miembros postulados y quórum pagado.
+
+        Raises:
+            HTTPException: Si la experiencia o la postulación no existen.
+        """
+        target_exp_id = experience_id or user_id
+        target_usr_id = user_id if experience_id else None
+
+        experience = self.experience_repo.get_by_id(target_exp_id)
+        if experience is None and experience_id is not None:
+            # Reintentar orden invertido
+            experience = self.experience_repo.get_by_id(user_id)
+            if experience is not None:
+                target_exp_id, target_usr_id = user_id, experience_id
+
+        if experience is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Experiencia no encontrada.",
+            )
+
+        group = None
+        if target_usr_id:
+            group = self.matching_repo.get_member_group(experience.id, target_usr_id)
+
+        if group is None:
+            # Buscar grupo abierto disponible
+            groups = self.matching_repo.get_groups_by_experience(experience.id)
+            group = next(
+                (g for g in groups if g.status == MatchingGroupStatusEnum.OPEN),
+                groups[0] if groups else None,
+            )
+
+        if group is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No tienes una postulación de matching para esta experiencia.",
+            )
+
+        return self._group_response(
+            group, experience, user_id=target_usr_id
+        )
+
+    def get_experience_groups(
+        self, experience_id: str
+    ) -> list[MatchingGroupResponseDTO]:
+        """Lista los grupos de postulación de una experiencia.
+
+        Args:
+            experience_id (str): Identificador de la experiencia.
+
+        Returns:
+            list[MatchingGroupResponseDTO]: Grupos con postulados y quórum pagado.
+
+        Raises:
+            HTTPException: Si la experiencia no existe.
+        """
+        experience = self.experience_repo.get_by_id(experience_id)
+        if experience is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Experiencia no encontrada.",
+            )
+        groups = self.matching_repo.get_groups_by_experience(experience_id)
+        member_counts = self.matching_repo.get_group_member_counts(experience_id)
+        paid_seats = self.matching_repo.count_paid_seats(experience_id)
+        return [
+            self._group_response(
+                group,
+                experience,
+                current_members=member_counts.get(group.id, 0),
+                paid_seats=paid_seats,
+            )
+            for group in groups
+        ]
+
+    def leave_group(self, experience_id: str, user_id: str) -> dict[str, str]:
+        """Permite a un usuario asistente retirarse de un grupo de matching.
+
+        Args:
+            experience_id (str): Identificador de la experiencia.
+            user_id (str): Identificador del usuario que desea salir.
+
+        Returns:
+            dict[str, str]: Confirmación de salida.
+
+        Raises:
+            HTTPException: Si el usuario no pertenece a ningún grupo para esa experiencia.
+        """
+        group = self.matching_repo.get_member_group(experience_id, user_id)
+        if group is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No tienes una postulación de matching para esta experiencia.",
+            )
+        members = self.matching_repo.get_members(group.id)
+        for member in members:
+            if str(member.user_id) == str(user_id):
+                self.db.delete(member)
+                self.db.flush()
+                group.current_members = self.matching_repo.count_members(group.id)
+                self.db.commit()
+                return {"status": "left"}
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No se encontró membresía en la experiencia.",
+        )
+
+    def evaluate_quorum(self, experience_id: str) -> bool:
+        """Confirma la experiencia cuando las reservas pagadas alcanzan el mínimo.
+
+        Debe invocarse después de que el servicio de reservas haya confirmado y
+        persistido el pago. El cálculo se rehace desde la base de datos para que
+        reintentos de webhooks o llamadas repetidas no dupliquen cupos.
+
+        Args:
+            experience_id (str): Identificador de la experiencia evaluada.
+
+        Returns:
+            bool: True si quedó confirmada o ya estaba confirmada; False si no
+            existe, no está abierta o no alcanzó el mínimo de reservas pagadas.
+        """
+        experience = self.matching_repo.get_experience_for_quorum(experience_id)
+        if experience is None:
+            return False
+
+        if experience.status == ExperienceStatusEnum.CONFIRMED:
+            self.matching_repo.mark_experience_groups_reached(experience.id)
             self.db.commit()
-            return {"status": "left"}
-        except Exception:
-            self.db.rollback()
-            raise
+            return True
+        if experience.status != ExperienceStatusEnum.OPEN:
+            return False
+
+        paid_seats = self.matching_repo.count_paid_seats(experience.id)
+        if paid_seats < experience.min_capacity:
+            return False
+
+        experience.status = ExperienceStatusEnum.CONFIRMED
+        self.matching_repo.mark_experience_groups_reached(experience.id)
+        self.db.commit()
+        return True
+
+
+class ExperienceRecommendationService:
+    """Recomendación determinística de experiencias al propio usuario, no de asistentes entre sí."""
+
+    _STOP_WORDS: ClassVar[set[str]] = {
+        "a",
+        "al",
+        "con",
+        "de",
+        "del",
+        "el",
+        "en",
+        "la",
+        "las",
+        "los",
+        "para",
+        "por",
+        "un",
+        "una",
+        "y",
+    }
+
+    def __init__(self, db: Session) -> None:
+        """Inicializa la recomendación con repositorios de usuario y experiencia.
+
+        Args:
+            db (Session): Sesión SQLAlchemy de la petición.
+        """
+        self.user_repo = UserRepository(db)
+        self.experience_repo = ExperienceRepository(db)
+
+    @staticmethod
+    def _normalize(text: str) -> str:
+        """Normaliza texto temático con la misma regla usada por matching.
+
+        Args:
+            text (str): Texto de interés o experiencia.
+
+        Returns:
+            str: Texto normalizado para comparar afinidad.
+        """
+        return _normalize_interest_label(text)
+
+    @classmethod
+    def _interest_affinity(
+        cls,
+        interests: list[str],
+        experience: Experience,
+    ) -> tuple[float, list[str]]:
+        """Calcula afinidad temática y conserva intereses que coinciden.
+
+        Args:
+            interests (list[str]): Intereses declarados por el usuario.
+            experience (Experience): Experiencia comparada con esos intereses.
+
+        Returns:
+            tuple[float, list[str]]: Mejor afinidad e intereses coincidentes.
+        """
+        category = experience.category.name if experience.category else ""
+        category_normalized = cls._normalize(category)
+        searchable = cls._normalize(
+            " ".join((category, experience.title, experience.description or ""))
+        )
+        searchable_tokens = set(re.findall(r"[a-z0-9]+", searchable)) - cls._STOP_WORDS
+        best_score = 0.0
+        matched_interests: list[str] = []
+
+        for interest in interests:
+            if not isinstance(interest, str) or not interest.strip():
+                continue
+            normalized_interest = cls._normalize(interest.strip())
+            interest_tokens = (
+                set(re.findall(r"[a-z0-9]+", normalized_interest)) - cls._STOP_WORDS
+            )
+            if not interest_tokens:
+                continue
+
+            if category_normalized and (
+                normalized_interest == category_normalized
+                or normalized_interest in category_normalized
+                or category_normalized in normalized_interest
+            ):
+                score = 1.0
+            elif normalized_interest in searchable:
+                score = 0.9
+            else:
+                token_coverage = len(interest_tokens & searchable_tokens) / len(
+                    interest_tokens
+                )
+                score = 0.65 * token_coverage if token_coverage >= 0.5 else 0.0
+
+            if score > 0:
+                if score >= 0.5:
+                    matched_interests.append(interest.strip())
+                best_score = max(best_score, score)
+
+        return best_score, matched_interests
+
+    @staticmethod
+    def _utc_datetime(value: datetime) -> datetime:
+        """Convierte una fecha a UTC para ordenar experiencias futuras.
+
+        Args:
+            value (datetime): Fecha de la experiencia.
+
+        Returns:
+            datetime: Fecha con zona horaria UTC.
+        """
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
+
+    def recommend_experiences(
+        self,
+        user_id: str,
+        latitude: float | None = None,
+        longitude: float | None = None,
+        radius_km: float | None = None,
+        limit: int = 20,
+    ) -> list[ExperienceRecommendationDTO]:
+        """Ordena experiencias disponibles según intereses, ubicación y fecha.
+
+        Args:
+            user_id (str): Identificador del usuario cuyos intereses se consultan.
+            latitude (float | None): Latitud opcional para calcular distancia.
+            longitude (float | None): Longitud opcional para calcular distancia.
+            radius_km (float | None): Radio máximo opcional; no hay uno por defecto.
+            limit (int): Número máximo de recomendaciones, entre 1 y 50.
+
+        Returns:
+            list[ExperienceRecommendationDTO]: Experiencias recomendadas sin reservar cupos.
+
+        Raises:
+            HTTPException: Si los parámetros geográficos o el límite son inválidos,
+            o si el usuario no existe.
+        """
+        location_supplied = latitude is not None or longitude is not None
+        if location_supplied and (
+            latitude is None
+            or longitude is None
+            or not -90.0 <= latitude <= 90.0
+            or not -180.0 <= longitude <= 180.0
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="latitude y longitude deben ser coordenadas válidas y enviarse juntas.",
+            )
+        if radius_km is not None and (latitude is None or longitude is None):
+            raise HTTPException(
+                status_code=422,
+                detail="radius_km requiere latitude y longitude; no se aplica un radio predeterminado.",
+            )
+        if radius_km is not None and (not isfinite(radius_km) or radius_km <= 0):
+            raise HTTPException(
+                status_code=422,
+                detail="radius_km debe ser un número positivo y finito.",
+            )
+        if not 1 <= limit <= 50:
+            raise HTTPException(
+                status_code=422,
+                detail="limit debe estar entre 1 y 50.",
+            )
+
+        user = self.user_repo.get_by_id(user_id)
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado."
+            )
+
+        now = datetime.now(UTC)
+        candidates = self.experience_repo.get_recommendation_candidates(as_of=now)
+        interests = user.interests if isinstance(user.interests, list) else []
+        ranked: list[
+            tuple[tuple[float, bool, float, datetime, str], ExperienceRecommendationDTO]
+        ] = []
+
+        for experience in candidates:
+            venue = experience.venue
+            distance_km = None
+            if (
+                latitude is not None
+                and longitude is not None
+                and venue is not None
+                and venue.latitude is not None
+                and venue.longitude is not None
+            ):
+                distance_km = ExperienceMapper.calculate_haversine_km(
+                    latitude,
+                    longitude,
+                    venue.latitude,
+                    venue.longitude,
+                )
+
+            is_virtual = (
+                getattr(experience.modality, "value", experience.modality) == "VIRTUAL"
+            )
+            if (
+                radius_km is not None
+                and not is_virtual
+                and (distance_km is None or distance_km > radius_km)
+            ):
+                continue
+
+            interest_score, matched_interests = self._interest_affinity(
+                interests, experience
+            )
+            reasons = [
+                f"Coincide con tu interés: {interest}" for interest in matched_interests
+            ]
+            if distance_km is not None:
+                reasons.append(f"A {distance_km:.1f} km del punto que compartiste")
+            if not reasons:
+                reasons.append("Experiencia futura con cupos disponibles")
+
+            event_date = self._utc_datetime(experience.event_date)
+            recommendation = MatchingMapper.to_recommendation_dto(
+                experience=experience,
+                event_date=event_date,
+                interest_score=interest_score,
+                matched_interests=matched_interests,
+                reasons=reasons,
+                distance_km=distance_km,
+            )
+            sort_key = (
+                -interest_score,
+                distance_km is None,
+                distance_km if distance_km is not None else inf,
+                event_date,
+                experience.id,
+            )
+            ranked.append((sort_key, recommendation))
+
+        ranked.sort(key=lambda item: item[0])
+        return [recommendation for _, recommendation in ranked[:limit]]

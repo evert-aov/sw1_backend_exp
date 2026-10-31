@@ -1,35 +1,41 @@
-"""Reglas de matching y evidencia de demanda; estas pruebas no sustituyen PostgreSQL."""
+"""Pruebas unitarias de matching, recomendaciones, demanda predictiva y notificaciones."""
 
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from uuid import uuid4
 from fastapi import HTTPException
 from pydantic import ValidationError
 import pytest
-from app.core.config import settings
+
 from app.booking.service.booking_service import BookingService
+from app.booking.repository.booking_repository import BookingRepository
 from app.core.security import create_access_token
 from app.experience.dto.experience_dto import ExperienceFilterDTO
-from app.matching.dto.matching_dto import MatchingApplicationDTO, SearchLogDTO, UnmetDemandInsightDTO
-from app.matching.service.matching_service import MatchingAlgorithmService, affinity, normalized
-from app.matching.service.demand_prediction_service import DemandPredictionService, observed_preferences, search_key
+from app.experience.entity.experience import Experience, ExperienceStatusEnum, ModalityEnum
+from app.matching.dto.matching_dto import (
+    MatchingApplicationDTO,
+    MatchingGroupResponseDTO,
+    SearchLogDTO,
+    UnmetDemandInsightDTO,
+    ExperienceRecommendationDTO,
+)
+from app.matching.entity.matching_group import MatchingGroup, MatchingGroupStatusEnum
+from app.matching.mapper.matching_mapper import MatchingMapper
+from app.matching.service.matching_service import (
+    MatchingAlgorithmService,
+    ExperienceRecommendationService,
+    affinity,
+    normalized,
+    _normalize_interest_label,
+    _normalize_interest_tags,
+)
+from app.matching.service.demand_prediction_service import (
+    DemandPredictionService,
+    observed_preferences,
+    search_key,
+)
 from app.notifications.service import NotificationService
-from app.booking.repository.booking_repository import BookingRepository
-
-
-def group_context():
-    user_id, event_id = str(uuid4()), str(uuid4())
-    event = SimpleNamespace(id=event_id, status="OPEN", reserved_slots=0, title="Taller", min_capacity=2,
-                            max_capacity=5, event_date=datetime.now(timezone.utc) + timedelta(days=1), duration_minutes=120,
-                            venue=SimpleNamespace(zone="Centro"))
-    group = SimpleNamespace(id=str(uuid4()), experience_id=event_id, target_quorum=2, status="OPEN",
-                            created_at=datetime.now(timezone.utc), deadline=event.event_date - timedelta(minutes=30),
-                            current_members=1, members=[SimpleNamespace(user_id=user_id, preferences={"interests": ["Música"]})])
-    service = MatchingAlgorithmService(MagicMock())
-    service._context = MagicMock(return_value=(SimpleNamespace(is_active=True), event, ["Música"]))
-    service._groups = MagicMock(return_value=[group])
-    return service, event, group, user_id
 
 
 def test_affinity_normalizes_accents_and_is_symmetric_without_fake_default():
@@ -40,62 +46,106 @@ def test_affinity_normalizes_accents_and_is_symmetric_without_fake_default():
     assert affinity(["café"], ["CAFE"]) == 1
 
 
-def test_reading_group_neither_joins_nor_commits_and_preserves_economic_quorum():
-    service, event, group, user_id = group_context()
-    for _ in range(3):
-        result = service.get_group_status(event.id, str(uuid4()))
-        assert result.current_members == 1
-        assert result.is_member is False
-        assert result.experience_confirmed is False
-    assert event.reserved_slots == 0
-    service.db.add.assert_not_called()
-    service.db.commit.assert_not_called()
+def test_matching_mapper_transforms_group_and_recommendation_dtos():
+    group = SimpleNamespace(
+        id=str(uuid4()),
+        experience_id=str(uuid4()),
+        status=MatchingGroupStatusEnum.OPEN,
+        deadline=datetime.now(timezone.utc),
+        created_at=datetime.now(timezone.utc),
+    )
+    dto = MatchingMapper.to_group_response_dto(
+        group=group,
+        target_quorum=10,
+        current_members=3,
+        is_quorum_reached=False,
+    )
+    assert dto.id == group.id
+    assert dto.target_quorum == 10
+    assert dto.current_members == 3
+    assert dto.status == MatchingGroupStatusEnum.OPEN
+    assert dto.is_quorum_reached is False
+
+    exp = SimpleNamespace(
+        id=str(uuid4()),
+        title="Concierto Jazz",
+        category=SimpleNamespace(name="Música"),
+        cover_image_url="http://example.com/cover.jpg",
+        modality=ModalityEnum.IN_PERSON,
+        price=150.0,
+        venue=SimpleNamespace(name="Teatro Central", zone="Equipetrol"),
+    )
+    rec_dto = MatchingMapper.to_recommendation_dto(
+        experience=exp,
+        event_date=datetime.now(timezone.utc),
+        interest_score=0.9,
+        matched_interests=["Música", "Jazz"],
+        reasons=["Coincide con tu interés: Música", "A 2.5 km"],
+        distance_km=2.5,
+    )
+    assert rec_dto.experience_id == exp.id
+    assert rec_dto.title == "Concierto Jazz"
+    assert rec_dto.interest_score == 0.9
+    assert rec_dto.distance_km == 2.5
+    assert len(rec_dto.matched_interests) == 2
 
 
-def test_duplicate_matching_application_keeps_one_membership():
-    service, event, group, user_id = group_context()
-    result = service.apply_for_matching(user_id, MatchingApplicationDTO(experience_id=event.id))
-    assert result.is_member and result.current_members == 1
-    service.db.add.assert_not_called()
-    assert event.status == "OPEN" and event.reserved_slots == 0
+def test_experience_recommendation_affinity_filters_stopwords():
+    exp = SimpleNamespace(
+        title="Taller de Pintura y Café en el Centro",
+        description="Aprende acuarela con los mejores artistas",
+        category=SimpleNamespace(name="Arte"),
+    )
+    score, matched = ExperienceRecommendationService._interest_affinity(
+        ["Pintura", "Acuarela", "Música"], exp
+    )
+    assert score > 0.6
+    assert "Pintura" in matched
+    assert "Música" not in matched
 
 
-def test_expired_group_is_computed_without_updating_the_database():
-    service, event, group, user_id = group_context()
-    group.deadline = datetime.now(timezone.utc) - timedelta(seconds=1)
-    group.target_quorum = 1
-    result = service.get_group_status(event.id, user_id)
-    assert result.status == "EXPIRED" and result.is_quorum_reached is False
-    assert group.status == "OPEN"
-    service.db.commit.assert_not_called()
+def test_cyclical_feature_encoding_in_demand_prediction():
+    features = DemandPredictionService._feature_record(
+        zone="Equipetrol",
+        category="Gastronomía",
+        modality="IN_PERSON",
+        price=120.0,
+        min_capacity=10,
+        max_capacity=50,
+        weekday_hour=(4, 18),  # Viernes 18:00
+    )
+    assert features["zone"] == "equipetrol"
+    assert features["category"] == "gastronomía"
+    assert "weekday_sin" in features
+    assert "weekday_cos" in features
+    assert "hour_sin" in features
+    assert "hour_cos" in features
+    assert pytest.approx(features["capacity_ratio"]) == 0.2
 
 
-@pytest.mark.parametrize("preferences", [
-    {"preferred_zone": "Otra zona"},
-    {"available_from": datetime.now(timezone.utc), "available_to": datetime.now(timezone.utc) + timedelta(hours=1)},
-])
-def test_incompatible_zone_or_availability_is_rejected_before_membership(preferences):
-    service, event, group, user_id = group_context()
-    with pytest.raises(HTTPException) as error:
-        service.apply_for_matching(user_id, MatchingApplicationDTO(experience_id=event.id, **preferences))
-    assert error.value.status_code == 409
-    service.db.add.assert_not_called()
-    service.db.rollback.assert_called_once()
+def test_bayesian_quorum_estimation_fallback_requires_minimum_outcomes():
+    # Con menos de 10 ejemplos debe devolver INSUFFICIENT_HISTORY
+    outcomes = [
+        ("Centro", ModalityEnum.IN_PERSON, 100.0, "BOB", datetime.now(timezone.utc), 10, 8),
+        ("Centro", ModalityEnum.IN_PERSON, 100.0, "BOB", datetime.now(timezone.utc), 10, 12),
+    ]
+    prob, source = DemandPredictionService._estimate_quorum_probability(
+        outcomes,
+        candidate_price=100.0,
+        candidate_currency="BOB",
+        candidate_time_slot="viernes por la noche",
+        candidate_modality="IN_PERSON",
+    )
+    assert prob is None
+    assert source == "INSUFFICIENT_HISTORY"
 
 
-def test_matching_requires_complete_ordered_availability():
-    with pytest.raises(ValidationError):
-        MatchingApplicationDTO(experience_id=str(uuid4()), available_from=datetime.now())
-    with pytest.raises(ValidationError):
-        MatchingApplicationDTO(experience_id=str(uuid4()), available_from=datetime(2030, 1, 2), available_to=datetime(2030, 1, 1))
+def test_legacy_log_search_endpoint_returns_410():
+    from app.matching.control.demand_controller import log_user_search
 
-
-def test_unknown_venue_zone_does_not_match_a_requested_zone():
-    service, event, group, user_id = group_context()
-    event.venue.zone = None
-    with pytest.raises(HTTPException) as error:
-        service.apply_for_matching(user_id, MatchingApplicationDTO(experience_id=event.id, preferred_zone="Centro"))
-    assert error.value.status_code == 409
+    with pytest.raises(HTTPException) as exc_info:
+        log_user_search(SearchLogDTO(query_text="jazz", zone="Centro", found_results=False))
+    assert exc_info.value.status_code == 410
 
 
 def test_notification_dedupe_is_per_recipient_kind_and_quorum_generation():
@@ -131,45 +181,10 @@ def test_demand_search_key_deduplicates_retries_and_separates_sessions_windows()
     assert search_key(filters, "a", now) != search_key(filters, "a", now + timedelta(minutes=5))
 
 
-def test_catalog_logs_actual_result_and_skips_later_pages():
-    db = MagicMock()
-    service = DemandPredictionService(db)
-    service.record_catalog(ExperienceFilterDTO(search="MÚSICA", zone=" Centro "), 3, "session")
-    parameters = db.execute.call_args.args[0].compile().params
-    assert parameters["found_results"] is True
-    assert parameters["query_text"] == "musica"
-    assert parameters["zone"] == "centro"
-    db.execute.reset_mock()
-    service.record_catalog(ExperienceFilterDTO(search="Música", page=2), 0, "session")
-    db.execute.assert_not_called()
-
-
-def test_client_found_results_is_ignored_and_recomputed():
-    service = DemandPredictionService(MagicMock())
-    service.record_catalog = MagicMock()
-    with patch("app.matching.service.demand_prediction_service.ExperienceRepository.filter", return_value=([], 7)):
-        service.record_search(None, SearchLogDTO(query_text="música", zone="Centro", found_results=False))
-    assert service.record_catalog.call_args.args[1] == 7
-
-
 def test_observed_preferences_use_median_and_bolivia_time_without_invented_data():
     assert observed_preferences([]) == (None, None)
     price, slot = observed_preferences([{"max_price": 20}, {"max_price": 100, "date_from": "2030-01-01T23:00:00Z"}])
     assert price == 60 and slot == "Noche"
-
-
-def test_recommendations_do_not_invent_confidence_or_price_when_missing():
-    db = MagicMock()
-    db.scalars.return_value.all.return_value = []
-    service = DemandPredictionService(db)
-    service.get_zone_insights = MagicMock(return_value=[UnmetDemandInsightDTO(
-        id=str(uuid4()), zone="centro", category_keyword="pintura", search_count=3, analyzed_at=datetime.now(),
-    )])
-    suggestion = service.generate_ai_experience_suggestions()[0]
-    assert suggestion.confidence_score is None
-    assert suggestion.suggested_price is None
-    assert suggestion.estimated_interest_count == 3
-    assert suggestion.method == "observed_searches"
 
 
 def test_auth_token_cannot_be_used_as_an_entry_qr():

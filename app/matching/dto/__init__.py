@@ -1,6 +1,8 @@
 from app.matching.dto.matching_dto import (
     MatchingApplicationDTO,
     MatchingGroupResponseDTO,
+    DemandModelStatusDTO,
+    ExperienceRecommendationDTO,
     UnmetDemandInsightDTO,
     SuggestedExperienceDTO,
     SearchLogDTO,
@@ -9,6 +11,8 @@ from app.matching.dto.matching_dto import (
 __all__ = [
     "MatchingApplicationDTO",
     "MatchingGroupResponseDTO",
+    "DemandModelStatusDTO",
+    "ExperienceRecommendationDTO",
     "UnmetDemandInsightDTO",
     "SuggestedExperienceDTO",
     "SearchLogDTO",

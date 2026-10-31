@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.experience.entity.venue import Venue
 
@@ -72,6 +73,47 @@ class VenueRepository:
             .filter(Venue.zone.ilike(f"%{zone.strip()}%"))
             .order_by(Venue.name.asc())
             .all()
+        )
+
+    def get_canonical_zone(self, zone: str) -> str | None:
+        """Busca la grafía almacenada de una zona sin distinguir mayúsculas.
+
+        Args:
+            zone (str): Nombre de la zona consultada.
+
+        Returns:
+            str | None: Nombre almacenado o None si la zona no existe.
+        """
+        row = (
+            self.db.query(Venue.zone)
+            .filter(
+                Venue.zone.isnot(None),
+                func.lower(func.trim(Venue.zone)) == zone.strip().lower(),
+            )
+            .order_by(Venue.zone.asc())
+            .first()
+        )
+        return row[0] if row else None
+
+    def owns_venue_in_zone(self, owner_id: str, zone: str) -> bool:
+        """Comprueba si un usuario posee un venue en la zona exacta.
+
+        Args:
+            owner_id (str): Identificador del propietario consultado.
+            zone (str): Zona del establecimiento.
+
+        Returns:
+            bool: True si el usuario posee al menos un venue en esa zona.
+        """
+        return (
+            self.db.query(Venue.id)
+            .filter(
+                Venue.owner_id == str(owner_id),
+                Venue.zone.isnot(None),
+                func.lower(func.trim(Venue.zone)) == zone.strip().lower(),
+            )
+            .first()
+            is not None
         )
 
     def get_all(self) -> list[Venue]:

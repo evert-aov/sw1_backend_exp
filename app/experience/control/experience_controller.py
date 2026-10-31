@@ -5,7 +5,7 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, Header, Query, status
 from sqlalchemy.orm import Session
 from app.auth.entity.user import User
-from app.core.database import get_db
+from app.core.database import SessionLocal, get_db
 from app.core.security import RoleChecker, get_current_active_user
 from app.experience.dto.experience_dto import (
     CatalogResponseDTO,
@@ -19,6 +19,16 @@ from app.experience.dto.experience_dto import (
 from app.core.pricing import quote_price
 from app.experience.entity.experience import ExperienceStatusEnum
 from app.experience.service.experience_service import ExperienceService
+from app.matching.service.demand_prediction_service import DatabaseUnmetDemandRecorder
+
+
+def get_demand_recorder() -> DatabaseUnmetDemandRecorder:
+    """Construye el registrador de demanda con sesiones independientes.
+
+    Returns:
+        DatabaseUnmetDemandRecorder: Adaptador transaccional de Matching.
+    """
+    return DatabaseUnmetDemandRecorder(SessionLocal)
 
 experience_router = APIRouter(
     prefix="/experiences",
@@ -89,6 +99,9 @@ def create_experience(
 def search_catalog(
     filters: Annotated[ExperienceFilterDTO, Depends()],
     db: Annotated[Session, Depends(get_db)],
+    demand_recorder: Annotated[
+        DatabaseUnmetDemandRecorder, Depends(get_demand_recorder)
+    ],
     search_session: Annotated[
         str | None, Header(alias="X-Search-Session", min_length=8, max_length=64)
     ] = None,
@@ -99,11 +112,13 @@ def search_catalog(
     Args:
         filters (ExperienceFilterDTO): Criterios de búsqueda, geolocalización GPS y paginación.
         db (Session): Sesión de base de datos inyectada.
+        demand_recorder (DatabaseUnmetDemandRecorder): Registrador de demanda con transacción independiente.
+        search_session (str | None): Identificador efímero de sesión de búsqueda.
 
     Returns:
         CatalogResponseDTO: Resultado paginado con el listado de experiencias y metadatos de paginación.
     """
-    service = ExperienceService(db)
+    service = ExperienceService(db, demand_recorder=demand_recorder)
     return service.search_catalog(filters, search_session)
 
 

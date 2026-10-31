@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import logging
 import math
 from datetime import datetime, timezone
+from typing import Protocol
+
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 from app.core.pricing import quote_price
@@ -28,21 +31,48 @@ from app.experience.repository.experience_repository import ExperienceRepository
 from app.experience.repository.venue_repository import VenueRepository
 
 
+class UnmetDemandRecorder(Protocol):
+    """Registra búsquedas vacías clasificadas sin exponer la persistencia."""
+
+    def record_unmet_search(self, *, category: str, zone: str) -> None:
+        """Registra una búsqueda vacía verificada.
+
+        Args:
+            category (str): Categoría reconocida por el catálogo.
+            zone (str): Zona canónica de un establecimiento existente.
+        """
+
+
 class ExperienceService:
     """
     Servicio de dominio para Publicación, Gestión y Exploración Geoespacial de Experiencias
     (CU-04: Publicar Experiencia y CU-05: Explorar y Filtrar Experiencias / HU-04, HU-05, HU-07).
     """
 
-    def __init__(self, db: Session) -> None:
+    def __init__(
+        self, db: Session, *, demand_recorder: UnmetDemandRecorder | None = None
+    ) -> None:
         """
         Inicializa el servicio de experiencias con sus repositorios colaboradores.
 
         Args:
             db (Session): Sesión activa de SQLAlchemy.
+            demand_recorder (UnmetDemandRecorder | None): Adaptador para registrar
+                búsquedas vacías; si se omite, se crea uno compatible con db.
         """
+        if demand_recorder is None:
+            try:
+                from app.matching.service.demand_prediction_service import (
+                    recorder_for_catalog_session,
+                )
+                demand_recorder = recorder_for_catalog_session(db)
+            except Exception:
+                demand_recorder = None
         self.db = db
         self.experience_repo = ExperienceRepository(db)
+        self.category_repo = CategoryRepository(db)
+        self.venue_repo = VenueRepository(db)
+        self.demand_recorder = demand_recorder
         self.category_repo = CategoryRepository(db)
         self.venue_repo = VenueRepository(db)
 
@@ -547,6 +577,57 @@ class ExperienceService:
             )
         return self._to_response_dto(exp)
 
+    def _record_unmet_demand_search(
+        self, filters: ExperienceFilterDTO, search_session: str | None = None
+    ) -> None:
+        """Registra demanda únicamente para búsquedas vacías verificables."""
+        if filters.page > 1:
+            return
+        if not filters.search and not filters.zone and not filters.category_id:
+            return
+
+        category_name = None
+        if filters.category_id is not None:
+            cat = self.category_repo.get_by_id(filters.category_id)
+            if cat:
+                category_name = cat.name
+        elif filters.search:
+            cat = self.category_repo.get_by_name(filters.search)
+            if cat:
+                category_name = cat.name
+
+        raw_zone = filters.zone.strip() if filters.zone else None
+        canonical_zone = (
+            self.venue_repo.get_canonical_zone(raw_zone) if raw_zone else None
+        )
+        zone_to_save = canonical_zone or raw_zone or "General"
+        cat_to_save = (
+            category_name or (filters.search.strip() if filters.search else "General")
+        )
+
+        dedupe_key = None
+        if search_session:
+            from app.matching.service.demand_prediction_service import search_key
+
+            now = datetime.now(timezone.utc)
+            dedupe_key = search_key(
+                {
+                    "search": filters.search,
+                    "zone": filters.zone,
+                    "cat": filters.category_id,
+                },
+                search_session,
+                now,
+            )
+
+        if self.demand_recorder is not None:
+            self.demand_recorder.record_unmet_search(
+                category=cat_to_save,
+                zone=zone_to_save,
+                query_text=filters.search,
+                dedupe_key=dedupe_key,
+            )
+
     def search_catalog(
         self, filters: ExperienceFilterDTO, search_session: str | None = None
     ) -> CatalogResponseDTO:
@@ -585,6 +666,13 @@ class ExperienceService:
             )
 
         experiences, total_count = self.experience_repo.filter(filters)
+        if total_count == 0:
+            try:
+                self._record_unmet_demand_search(filters, search_session)
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "No se pudo registrar una búsqueda del catálogo sin resultados."
+                )
         items = [
             self._to_response_dto(
                 e,
@@ -595,13 +683,6 @@ class ExperienceService:
         ]
         total_pages = (
             math.ceil(total_count / filters.page_size) if total_count > 0 else 1
-        )
-        from app.matching.service.demand_prediction_service import (
-            DemandPredictionService,
-        )
-
-        DemandPredictionService(self.db).record_catalog(
-            filters, total_count, search_session
         )
         return CatalogResponseDTO(
             total=total_count,
