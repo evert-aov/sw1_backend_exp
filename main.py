@@ -20,9 +20,10 @@ if __name__ == "__main__":
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
-from fastapi import FastAPI, status
+from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 from app.auth.control import auth_router, users_router
 from app.booking.control import booking_router, payment_router, subscription_router
@@ -201,6 +202,17 @@ app.include_router(live_router, prefix=settings.API_V1_STR)
 app.include_router(report_router, prefix=settings.API_V1_STR)
 
 app.include_router(system_router, prefix=settings.API_V1_STR)
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Manejador global de excepciones no controladas para garantizar respuestas CORS y registro detallado."""
+    import logging
+    logging.exception("Error 500 no controlado en %s %s: %s", request.method, request.url.path, exc)
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"detail": "Error interno del servidor. Por favor intente más tarde."},
+    )
 
 
 def custom_openapi() -> dict[str, Any]:

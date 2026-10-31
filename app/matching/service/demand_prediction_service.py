@@ -135,6 +135,15 @@ class DemandPredictionService:
             HTTPException: Si la zona está vacía o el usuario carece de acceso.
         """
         if not zone or not zone.strip() or zone.strip().casefold() in {"todas las zonas", "all"}:
+            if user_id and user_id != "system":
+                roles = {role.upper() for role in self.user_repo.get_user_roles(user_id)}
+                if not ("ADMIN" in roles or "VENUE" in roles or (allow_host and "HOST" in roles)):
+                    detail = (
+                        "Se requiere rol HOST, administrador o propiedad de un establecimiento."
+                        if allow_host
+                        else "Solo un administrador o propietario de un establecimiento puede consultar estos datos."
+                    )
+                    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
             return "Todas las zonas"
 
         normalized_zone = zone.strip()
@@ -205,18 +214,23 @@ class DemandPredictionService:
 
     def get_zone_insights(
         self,
-        user_id_or_zone: str,
+        user_id_or_zone: str | None = None,
         zone: str | None = None,
         window_days: int = 30,
+        *,
+        user_id: str | None = None,
+        allow_host: bool = True,
     ) -> list[UnmetDemandInsightDTO]:
         """Agrupa las búsquedas verificadas sin resultados en una zona autorizada.
 
-        Soporta tanto llamada con (user_id, zone, window_days) como llamada directa (zone, window_days).
+        Soporta tanto llamada con (user_id=..., zone=..., window_days=...) como llamada directa (zone, window_days).
 
         Args:
-            user_id_or_zone (str): Usuario que consulta o zona directa.
+            user_id_or_zone (str | None): Usuario que consulta o zona directa.
             zone (str | None): Zona del establecimiento consultado si se envió user_id.
             window_days (int): Días retrospectivos del agregado, entre 1 y 365.
+            user_id (str | None): Identificador del usuario autenticado (kwarg).
+            allow_host (bool): Permite a anfitriones autorizados consultar demanda de zonas.
 
         Returns:
             list[UnmetDemandInsightDTO]: Conteos de búsquedas por categoría.
@@ -224,9 +238,17 @@ class DemandPredictionService:
         Raises:
             HTTPException: Si la zona, la ventana o el acceso son inválidos.
         """
-        actual_user_id = user_id_or_zone if zone is not None else "system"
-        actual_zone = zone if zone is not None else user_id_or_zone
-        authorized_zone = self._authorize_zone_access(actual_user_id, actual_zone)
+        if user_id is not None:
+            actual_user_id = user_id
+            actual_zone = zone if zone is not None else user_id_or_zone
+        elif zone is not None:
+            actual_user_id = user_id_or_zone if user_id_or_zone is not None else "system"
+            actual_zone = zone
+        else:
+            actual_user_id = "system"
+            actual_zone = user_id_or_zone
+
+        authorized_zone = self._authorize_zone_access(actual_user_id, actual_zone, allow_host=allow_host)
         counts, analyzed_at = self._get_counts(authorized_zone, window_days)
         return [
             UnmetDemandInsightDTO(
