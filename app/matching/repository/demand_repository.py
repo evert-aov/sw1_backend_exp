@@ -108,30 +108,34 @@ class DemandRepository:
 
     def get_unmet_search_counts(
         self,
-        zone: str,
+        zone: str | None,
         since: datetime,
     ) -> list[tuple[str, int]]:
         """Cuenta búsquedas sin resultados por categoría y zona desde una fecha.
 
         Args:
-            zone (str): Zona consultada.
+            zone (str | None): Zona consultada o None para todas las zonas.
             since (datetime): Límite inferior de la ventana temporal.
 
         Returns:
             list[tuple[str, int]]: Categorías y cantidades ordenadas por demanda.
         """
-        rows = (
+        query = (
             self.db.query(
                 SearchLog.category, func.count(SearchLog.id).label("search_count")
             )
             .filter(
                 SearchLog.found_results.is_(False),
                 SearchLog.category.isnot(None),
-                SearchLog.zone == zone,
                 SearchLog.created_at >= since,
                 SearchLog.id.notin_(self._LEGACY_DEMO_SEARCH_IDS),
             )
-            .group_by(SearchLog.category)
+        )
+        if zone and zone.strip() and zone.strip().casefold() not in {"todas las zonas", "all"}:
+            query = query.filter(SearchLog.zone == zone.strip())
+
+        rows = (
+            query.group_by(SearchLog.category)
             .order_by(func.count(SearchLog.id).desc(), SearchLog.category.asc())
             .all()
         )

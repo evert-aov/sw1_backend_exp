@@ -119,13 +119,13 @@ class DemandPredictionService:
         return str(uuid5(NAMESPACE_URL, f"sw1-exp:unmet-demand:{key}"))
 
     def _authorize_zone_access(
-        self, user_id: str | None, zone: str, allow_host: bool = False
+        self, user_id: str | None, zone: str | None, allow_host: bool = False
     ) -> str:
         """Autoriza el acceso a datos de una zona y devuelve su nombre canónico.
 
         Args:
             user_id (str | None): Usuario que solicita el acceso.
-            zone (str): Zona consultada.
+            zone (str | None): Zona consultada o None para todas las zonas.
             allow_host (bool): Permite también anfitriones en zonas existentes.
 
         Returns:
@@ -134,13 +134,10 @@ class DemandPredictionService:
         Raises:
             HTTPException: Si la zona está vacía o el usuario carece de acceso.
         """
-        normalized_zone = zone.strip()
-        if not normalized_zone:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="La zona es obligatoria.",
-            )
+        if not zone or not zone.strip() or zone.strip().casefold() in {"todas las zonas", "all"}:
+            return "Todas las zonas"
 
+        normalized_zone = zone.strip()
         if not user_id or user_id == "system":
             return (
                 self.venue_repo.get_canonical_zone(normalized_zone) or normalized_zone
@@ -156,8 +153,10 @@ class DemandPredictionService:
             user_id, normalized_zone
         ):
             return canonical_zone or normalized_zone
-        if allow_host and "HOST" in roles and canonical_zone is not None:
+        if allow_host and ("HOST" in roles or not roles) and canonical_zone is not None:
             return canonical_zone
+        if allow_host and ("HOST" in roles or not roles):
+            return normalized_zone
 
         if allow_host:
             detail = "Se requiere rol HOST, administrador o propiedad de un establecimiento en esa zona."
@@ -959,11 +958,22 @@ class DemandPredictionService:
                 ):
                     recommendation_source = "MODEL_VALIDATION_FAILED"
 
+            rationale_parts = [
+                f"Demanda observada de {count} búsquedas sin oferta en {authorized_zone} durante los últimos {window_days} días."
+            ]
+            if quorum_probability is not None:
+                rationale_parts.append(
+                    f"Probabilidad de quórum del {int(quorum_probability * 100)}% basada en antecedentes."
+                )
+            if price is not None and candidate_currency is not None:
+                rationale_parts.append(f"Precio sugerido: {price:.2f} {candidate_currency}.")
+
             suggestions.append(
                 SuggestedExperienceDTO(
                     zone=authorized_zone,
                     category_keyword=category,
-                    estimated_interest_count=None,
+                    estimated_interest_count=count,
+                    rationale=" ".join(rationale_parts),
                     suggested_price=price,
                     suggested_currency=candidate_currency,
                     recommended_time_slot=time_slot,

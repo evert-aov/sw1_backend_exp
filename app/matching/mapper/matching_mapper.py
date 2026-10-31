@@ -58,10 +58,10 @@ class MatchingMapper:
             deadline=group.deadline,
             created_at=group.created_at,
             is_quorum_reached=is_quorum_reached,
-            is_member=is_member,
-            affinity_score=affinity_score,
-            paid_slots=paid_seats,
-            experience_confirmed=experience_confirmed,
+            is_member=bool(is_member),
+            affinity_score=float(affinity_score or 0.0),
+            paid_slots=int(paid_seats or 0),
+            experience_confirmed=bool(experience_confirmed),
         )
 
     @staticmethod

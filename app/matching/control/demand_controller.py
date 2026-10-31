@@ -70,7 +70,7 @@ def log_user_search(dto: SearchLogDTO) -> dict[str, Any]:
 def get_unmet_demand_insights(
     current_user: Annotated[User, Depends(get_current_active_user)],
     db: Annotated[Session, Depends(get_db)],
-    zone: Annotated[str, Query(min_length=2, max_length=100)] = "Centro",
+    zone: Annotated[str | None, Query(max_length=100)] = None,
     window_days: Annotated[int, Query(ge=1, le=365)] = 30,
 ) -> list[UnmetDemandInsightDTO]:
     """
@@ -79,7 +79,7 @@ def get_unmet_demand_insights(
     Args:
         current_user (User): Administrador o propietario de un venue en la zona.
         db (Session): Sesión de base de datos de la petición.
-        zone (str): Nombre de la zona asociada al venue (por defecto "Centro").
+        zone (str | None): Nombre de la zona asociada al venue (o None para todas las zonas).
         window_days (int): Días retrospectivos del agregado (1-365, por defecto 30).
 
     Returns:
@@ -144,7 +144,7 @@ def train_quorum_model(
 def get_ai_suggestions_for_venue(
     current_user: Annotated[User, Depends(get_current_active_user)],
     db: Annotated[Session, Depends(get_db)],
-    zone: Annotated[str, Query(min_length=2, max_length=100)] = "Centro",
+    zone: Annotated[str | None, Query(max_length=100)] = None,
     window_days: Annotated[int, Query(ge=1, le=365)] = 30,
 ) -> list[SuggestedExperienceDTO]:
     """
@@ -153,7 +153,7 @@ def get_ai_suggestions_for_venue(
     Args:
         current_user (User): Anfitrión, administrador o propietario autorizado.
         db (Session): Sesión de base de datos de la petición.
-        zone (str): Zona de un establecimiento existente donde el anfitrión puede publicar.
+        zone (str | None): Zona de un establecimiento existente (o None para todas las zonas).
         window_days (int): Días retrospectivos del agregado (1-365, por defecto 30).
 
     Returns:
@@ -163,6 +163,6 @@ def get_ai_suggestions_for_venue(
     service = DemandPredictionService(db)
     return service.generate_experience_suggestions(
         user_id=current_user.id,
-        zone=zone,
+        zone=zone or "Todas las zonas",
         window_days=window_days,
     )

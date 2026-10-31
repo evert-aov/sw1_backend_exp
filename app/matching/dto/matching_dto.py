@@ -43,17 +43,17 @@ class MatchingGroupResponseDTO(BaseModel):
     is_quorum_reached: bool = Field(
         default=False, description="Indica si reservas pagadas alcanzaron el mínimo de la experiencia"
     )
-    is_member: bool | None = Field(
-        default=None, description="Indica si el usuario autenticado pertenece al grupo"
+    is_member: bool = Field(
+        default=False, description="Indica si el usuario autenticado pertenece al grupo"
     )
-    affinity_score: float | None = Field(
-        default=None, description="Puntuación de afinidad con el grupo"
+    affinity_score: float = Field(
+        default=0.0, description="Puntuación de afinidad con el grupo"
     )
-    paid_slots: int | None = Field(
-        default=None, description="Cupos pagados confirmados de la experiencia"
+    paid_slots: int = Field(
+        default=0, description="Cupos pagados confirmados de la experiencia"
     )
-    experience_confirmed: bool | None = Field(
-        default=None, description="Si la experiencia ya alcanzó su capacidad mínima pagada"
+    experience_confirmed: bool = Field(
+        default=False, description="Si la experiencia ya alcanzó su capacidad mínima pagada"
     )
 
 
@@ -117,9 +117,14 @@ class SuggestedExperienceDTO(BaseModel):
 
     zone: str = Field(..., description="Zona urbana del establecimiento propuesto")
     category_keyword: str = Field(..., description="Categoría temática recomendada")
-    estimated_interest_count: int | None = Field(
-        default=None,
-        description="No proyectado; ver observed_search_count para eventos de búsqueda reales",
+    category_id: str | None = Field(default=None, description="Identificador opcional de categoría")
+    estimated_interest_count: int = Field(
+        default=0,
+        description="Conteo de búsquedas sin oferta observadas para alimentar vistas web y móviles",
+    )
+    rationale: str = Field(
+        default="",
+        description="Explicación legible de la recomendación para el anfitrión",
     )
     suggested_price: float | None = Field(
         default=None,
