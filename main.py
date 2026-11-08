@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import os
 import socket
+from dotenv import load_dotenv
+
+load_dotenv()
 
 _prebound_socket: socket.socket | None = None
 if __name__ == "__main__":
-    _port = int(os.getenv("PORT", "3000"))
+    _port = int(os.getenv("PORT", "8000"))
     _host = os.getenv("HOST", "0.0.0.0")
     _sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     _sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -293,7 +296,7 @@ def health_check() -> HealthCheckResponseDTO:
 if __name__ == "__main__":
     import uvicorn
 
-    port = int(os.getenv("PORT", "3000"))
+    port = int(os.getenv("PORT", "8000"))
     host = os.getenv("HOST", "0.0.0.0")
     config = uvicorn.Config(app, host=host, port=port)
     server = uvicorn.Server(config)
