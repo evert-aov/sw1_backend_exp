@@ -194,3 +194,4 @@ def test_websocket_stream_connect_and_receive():
         pong_data = ws.receive_text()
         pong_parsed = json.loads(pong_data)
         assert pong_parsed.get("type") == "pong"
+
