@@ -54,6 +54,12 @@ class Settings(BaseSettings):
     # Comisión de la plataforma por defecto (%)
     PLATFORM_FEE_PERCENTAGE: float = float(os.getenv("PLATFORM_FEE_PERCENTAGE", 10.0))
 
+    # Modelos OpenCV de estimación etaria (HU-16): rutas absolutas o relativas a la carpeta del backend.
+    # Vacías o inexistentes: el estimador no se registra y la API informa estimator_configured=false.
+    AGE_FACE_DETECTOR_PATH: str = ""
+    AGE_CLASSIFIER_PROTOTXT_PATH: str = ""
+    AGE_CLASSIFIER_MODEL_PATH: str = ""
+
     # URL PostgreSQL opcional; tiene prioridad sobre los campos DB_*.
     DATABASE_URL: str | None = os.getenv("DATABASE_URL")
 
