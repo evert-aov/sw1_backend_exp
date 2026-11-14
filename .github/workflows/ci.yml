@@ -1,0 +1,180 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-backend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Backend Test Suite & Typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:15.20
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-only-postgres-password
+          POSTGRES_DB: experiencia_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d experiencia_db"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve changed-file baseline
+        id: quality-base
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_REF: origin/${{ github.base_ref || '' }}
+          PUSH_BEFORE: ${{ github.event.before || '' }}
+        run: |
+          set -euo pipefail
+          case "$EVENT_NAME" in
+            pull_request) base="$PR_BASE_REF" ;;
+            push) base="$PUSH_BEFORE" ;;
+            workflow_dispatch) base="HEAD^" ;;
+            *) echo "::error::Unsupported event for changed-file checks: $EVENT_NAME" >&2; exit 1 ;;
+          esac
+          if [[ -z "$base" || "$base" =~ ^0+$ ]]; then base="HEAD^"; fi
+          if ! git rev-parse --verify --quiet "${base}^{commit}" >/dev/null; then
+            echo "::error::Unable to resolve changed-file baseline: $base" >&2
+            exit 1
+          fi
+          printf 'ref=%s\n' "$base" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Check changed Python files
+        shell: bash
+        env:
+          DIFF_BASE: ${{ steps.quality-base.outputs.ref }}
+        run: |
+          set -euo pipefail
+          diff_file="$RUNNER_TEMP/changed-python-files"
+          git diff --name-only -z --diff-filter=ACMRT "$DIFF_BASE...HEAD" -- '*.py' > "$diff_file"
+          mapfile -d '' -t files < "$diff_file"
+          if ((${#files[@]} == 0)); then
+            echo "No changed Python files; gradual quality checks skipped."
+          else
+            python -m ruff check "${files[@]}"
+            python -m ruff format --check "${files[@]}"
+            pyright "${files[@]}"
+          fi
+
+      - name: Run automated tests
+        env:
+          JWT_SECRET: test-secret-only-for-automated-ci
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_USER: postgres
+          DB_PASS: ci-only-postgres-password
+          DB_NAME: experiencia_db
+        run: |
+          python -m pytest \
+            tests/test_security_pricing_bookings.py \
+            tests/test_age_distribution.py \
+            tests/test_database_configuration.py \
+            tests/test_stripe_configuration.py \
+            tests/test_stripe_errors.py \
+            tests/test_stripe_payments.py \
+            tests/test_diagnostics.py \
+            tests/test_http_security.py \
+            tests/test_matching_demand_notifications.py \
+            tests/test_role_workspaces.py \
+            tests/test_demo_seed.py \
+            tests/test_deploy_report.py \
+            tests/test_deploy_preflight.py \
+            tests/test_quality_gate_negative.py \
+            tests/test_schema_migrations.py \
+            tests/test_postgres_integration.py \
+            tests/test_migration_postgres_integration.py \
+            -q
+
+  security:
+    name: Filesystem Security Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Test sanitized security report handling
+        env:
+          PYTHONPATH: .
+        run: python tests/test_security_report.py
+
+      - name: Scan filesystem with Trivy
+        id: trivy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          cache-dir: ${{ runner.temp }}/trivy-cache
+          scanners: vuln,secret
+          format: json
+          output: ${{ runner.temp }}/trivy-results.json
+          version: v0.70.0
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+          exit-code: "0"
+          hide-progress: true
+          timeout: 5m
+
+      - name: Create sanitized security report
+        if: always()
+        env:
+          TRIVY_SCAN_OUTCOME: ${{ steps.trivy.outcome }}
+        run: >-
+          python scripts/ci/security_report.py
+          --input "$RUNNER_TEMP/trivy-results.json"
+          --scan-outcome "$TRIVY_SCAN_OUTCOME"
+          --report "$RUNNER_TEMP/security-report.json"
+          --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload sanitized security report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-report
+          path: ${{ runner.temp }}/security-report.json
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Remove runner-temporary scanner output
+        if: always()
+        run: rm -f "$RUNNER_TEMP/trivy-results.json" "$RUNNER_TEMP/security-report.json"
