@@ -5,9 +5,17 @@
 Desde experiencia_back/, con Python 3.14.6 y dependencias instaladas:
 
 ```sh
+python -m ruff check app tests scripts
+python -m ruff format --check app tests scripts
+pyright app
+python -m pytest tests/test_security_pricing_bookings.py tests/test_age_distribution.py tests/test_database_configuration.py tests/test_stripe_configuration.py -q
+
+# Suite completa; la integración con PostgreSQL depende del entorno configurado.
 venv/bin/python -B -m pytest -q -p no:cacheprovider -rs
 venv/bin/python scripts/check_database.py
 ```
+
+Con el entorno virtual activo, instalá las herramientas de desarrollo con `python -m pip install -r requirements-dev.txt`. CI ejecuta Ruff (lint y formato) y Pyright solo sobre archivos Python modificados respecto de la rama base, además de los cuatro módulos de prueba indicados arriba. Esto no equivale a ejecutar la suite completa ni sus pruebas PostgreSQL.
 
 La suite cubre configuración, rechazo de privilegios, mantenimiento deshabilitado, HTTP sin autenticación, JWT revocado, cotización, límites monetarios, pertenencia de reservas y reglas de retención. Las pruebas unitarias usan dobles y no demuestran bloqueos reales.
 
@@ -35,3 +43,11 @@ El [avance](../../docs/AVANCE_SPRINT_2.md) registra resultados concretos y pendi
 | Mantenimiento HTTP devuelve 404 | Deshabilitado por defecto, incluso con ADMIN |
 
 La conexión exitosa, la revisión del esquema y las pruebas de transacciones constituyen evidencias diferentes. El endpoint / solo publica metadatos; no demuestra que todo el sprint esté operativo.
+
+## Escaneo de seguridad automatizado
+
+CI ejecuta Trivy `v0.70.0` sobre el checkout para detectar vulnerabilidades de dependencias y secretos; la acción está fijada a una revisión inmutable y tiene un límite de diez minutos. El JSON original permanece en el directorio temporal del runner y se elimina al terminar; solo el reporte sanitizado se conserva como artefacto de GitHub Actions durante 14 días. El reporte `security-report/v1` comparte los campos comunes (`service`, `version`, `phase`, `status`, `code`, `cause_status`, `evidence`, `possible_causes` y `recommended_actions`) e incluye `evidence.output_validation`, un código seguro para diagnosticar la validación del JSON. Incluye conteos y metadatos validados de vulnerabilidades. Para secretos expone identificadores de regla y rutas relativas validadas, agrupados por par con su conteo y limitados a 20 entradas; las rutas inseguras se redactan y `secret_findings_truncated` indica si hubo más. Nunca incluye valores detectados ni números de línea.
+
+El gate bloquea cualquier hallazgo de secreto y vulnerabilidades `HIGH` o `CRITICAL`. `MEDIUM`, `LOW` y `UNKNOWN` quedan como avisos para revisión. No hay reglas de exclusión de rutas ni allowlists de secretos. Un escaneo omitido, fallido o con salida ausente/malformada no puede aprobar; el parser exige `SchemaVersion: 2`, acepta `ArtifactType: filesystem` y `ArtifactType: repository`, y admite `Results: null` para un escaneo limpio. Trivy cambia automáticamente a `repository` al escanear un directorio que contiene metadatos Git.
+
+Para validar el generador del reporte: `PYTHONPATH=. python tests/test_security_report.py`. La prueba cubre secretos, severidades bloqueantes, avisos de severidad inferior y salidas malformadas/no ejecutadas, y comprueba que el reporte no filtre coincidencias ni números de línea.
