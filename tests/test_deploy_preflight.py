@@ -32,6 +32,32 @@ def valid_environment(**overrides: str) -> dict[str, str]:
     return values
 
 
+def test_preflight_report_matches_stable_deployment_contract() -> None:
+    report = build_preflight_report(valid_environment())
+    required_fields = {
+        "schema",
+        "project",
+        "revision",
+        "environment",
+        "phase",
+        "status",
+        "duration_ms",
+        "gate_status",
+        "code",
+        "cause_status",
+        "evidence",
+        "possible_causes",
+        "recommended_actions",
+    }
+
+    assert required_fields <= report.keys()
+    assert report["schema"] == "deployment-report/v1"
+    assert isinstance(report["duration_ms"], int)
+    assert isinstance(report["evidence"], dict)
+    assert isinstance(report["possible_causes"], list)
+    assert isinstance(report["recommended_actions"], list)
+
+
 def test_blocks_manual_dispatch_from_non_main_without_echoing_ref() -> None:
     report = build_preflight_report(valid_environment(GITHUB_REF="refs/heads/feature/unreviewed"))
 

@@ -86,6 +86,8 @@ Traefik v3 gestionará de manera automática los certificados SSL con Let's Encr
 
 `Deploy AWS (Backend)` ejecuta `infra/aws/deploy_preflight.py` antes de conceder permisos OIDC o ejecutar comandos AWS. Solo se permite `workflow_dispatch` sobre `main` o la finalización exitosa de CI para un `push` a `main`. El gate nunca hace una llamada a AWS. Si la configuración está ausente, el reporte marca `status: not_configured` y `gate_status: blocked`; el job de despliegue queda omitido. La publicación de una imagen no equivale a verificar el arranque ni la disponibilidad del servicio.
 
+El preflight emite el contrato independiente `deployment-report/v1`, distinto del contrato de diagnóstico de la aplicación. Sus campos requeridos incluyen `project`, `revision`, `environment`, `phase`, `status`, `duration_ms`, `gate_status`, `code`, `cause_status`, `evidence`, `possible_causes` y `recommended_actions`. Los reportes describen únicamente evidencia observada; las causas no confirmadas se mantienen como hipótesis y no incluyen valores de configuración.
+
 Configure estas **GitHub Actions repository variables** en el sandbox, no como secretos ni en archivos del repositorio:
 
 | Variable | Uso y formato validado |
