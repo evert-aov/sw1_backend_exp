@@ -13,7 +13,13 @@ SERVICE = "experiencia-backend"
 REMOTE_PHASES = {"preparation", "startup", "readiness", "postdeploy"}
 RUNTIME_PHASES = ("startup", "readiness", "postdeploy")
 SAFE_CODE = re.compile(r"^[A-Z][A-Z0-9_]*(?:\.[A-Z][A-Z0-9_]*)+$")
-SAFE_PROBES = {"configuration", "preparation_operation", "compose_up", "health_ready", "root_contract"}
+SAFE_PROBES = {
+    "configuration",
+    "preparation_operation",
+    "compose_up",
+    "health_ready",
+    "root_contract",
+}
 STEP_OUTCOMES = {"success", "failure", "cancelled", "skipped"}
 
 
@@ -30,7 +36,9 @@ def _report(
     safe_cause_status = (
         cause_status
         if cause_status in {"confirmed", "hypothesis", "unknown"}
-        else "hypothesis" if failed else "unknown"
+        else "hypothesis"
+        if failed
+        else "unknown"
     )
     return {
         "schema": "diagnostic-report/v1",
@@ -42,7 +50,9 @@ def _report(
         "cause_status": safe_cause_status,
         "evidence": evidence,
         "possible_causes": (
-            ["A reported step failed; inspect its named Actions or SSM evidence to confirm the cause."]
+            [
+                "A reported step failed; inspect its named Actions or SSM evidence to confirm the cause."
+            ]
             if failed
             else []
         ),
@@ -108,7 +118,10 @@ def _remote_reports(raw_lines: str, version: str) -> list[dict[str, object]]:
             continue
         status = raw.get("status")
         if not isinstance(status, str) or status not in {
-            "passed", "failed", "not_verified", "not_applicable"
+            "passed",
+            "failed",
+            "not_verified",
+            "not_applicable",
         }:
             continue
         phase = "remote_preparation" if raw_phase == "preparation" else raw_phase
@@ -155,24 +168,39 @@ def build_workflow_reports(
         version = "unknown"
     reports = [
         _step_phase(
-            "preparation", ("checkout", "buildx"), outcomes,
-            version=version, error_code="DEPLOY.PREPARATION_FAILED",
+            "preparation",
+            ("checkout", "buildx"),
+            outcomes,
+            version=version,
+            error_code="DEPLOY.PREPARATION_FAILED",
         ),
         _step_phase(
-            "authentication", ("aws_auth", "ecr_login"), outcomes,
-            version=version, error_code="DEPLOY.AUTHENTICATION_FAILED",
+            "authentication",
+            ("aws_auth", "ecr_login"),
+            outcomes,
+            version=version,
+            error_code="DEPLOY.AUTHENTICATION_FAILED",
         ),
         _step_phase(
-            "build", ("build",), outcomes,
-            version=version, error_code="DEPLOY.BUILD_FAILED",
+            "build",
+            ("build",),
+            outcomes,
+            version=version,
+            error_code="DEPLOY.BUILD_FAILED",
         ),
         _step_phase(
-            "publication", ("tag_ecr", "publish"), outcomes,
-            version=version, error_code="DEPLOY.PUBLICATION_FAILED",
+            "publication",
+            ("tag_ecr", "publish"),
+            outcomes,
+            version=version,
+            error_code="DEPLOY.PUBLICATION_FAILED",
         ),
         _step_phase(
-            "deployment", ("deploy",), outcomes,
-            version=version, error_code="DEPLOY.DEPLOYMENT_FAILED",
+            "deployment",
+            ("deploy",),
+            outcomes,
+            version=version,
+            error_code="DEPLOY.DEPLOYMENT_FAILED",
         ),
     ]
     remote = _remote_reports(remote_phase_reports, version)
@@ -185,7 +213,11 @@ def build_workflow_reports(
                     phase,
                     "not_verified",
                     version=version,
-                    evidence={"probe": "runtime_health_check", "source": "ec2", "outcome": "not_observed"},
+                    evidence={
+                        "probe": "runtime_health_check",
+                        "source": "ec2",
+                        "outcome": "not_observed",
+                    },
                 )
             )
     return reports
@@ -193,10 +225,7 @@ def build_workflow_reports(
 
 def main() -> None:
     names = ("checkout", "buildx", "aws_auth", "ecr_login", "tag_ecr", "build", "publish", "deploy")
-    outcomes = {
-        name: os.environ.get(f"{name.upper()}_OUTCOME", "unknown")
-        for name in names
-    }
+    outcomes = {name: os.environ.get(f"{name.upper()}_OUTCOME", "unknown") for name in names}
     version = os.environ.get("VERSION", "unknown") or "unknown"
     if not re.fullmatch(r"[a-fA-F0-9]{40}", version):
         version = "unknown"

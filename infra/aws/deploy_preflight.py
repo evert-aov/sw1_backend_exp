@@ -72,7 +72,9 @@ def _event_evidence(environment: Mapping[str, str]) -> tuple[bool, dict[str, str
         if ref != "refs/heads/main":
             return False, evidence, "DEPLOY.BRANCH_NOT_ALLOWED"
         evidence["confirmation"] = (
-            "confirmed" if environment.get("DEPLOY_CONFIRMATION", "").lower() == "true" else "not_confirmed"
+            "confirmed"
+            if environment.get("DEPLOY_CONFIRMATION", "").lower() == "true"
+            else "not_confirmed"
         )
     else:
         return False, evidence, "DEPLOY.TRIGGER_NOT_ALLOWED"
@@ -99,7 +101,9 @@ def build_preflight_report(environment: Mapping[str, str] | None = None) -> Pref
     if not allowed:
         status = "blocked"
         cause_status = "confirmed"
-        actions = ["Run deployment only with workflow_dispatch from main; automatic deployments after CI are disabled."]
+        actions = [
+            "Run deployment only with workflow_dispatch from main; automatic deployments after CI are disabled."
+        ]
     else:
         missing = sorted(name for name in REQUIRED_VARIABLES if not values.get(name, "").strip())
         invalid = sorted(
