@@ -91,7 +91,7 @@ No configure `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` ni contraseñas de nub
 1. Cree un registro DNS `A` para el hostname de API apuntando a la IP estable de EC2. Use exactamente el hostname (sin `https://`) en `AWS_API_HOST` de `runtime.env` en EC2.
 2. `compose.yml` ejecuta Traefik v3 con Let's Encrypt HTTP-01 y requiere `ACME_EMAIL`; el DNS debe resolver antes del primer arranque y los puertos 80/443 deben llegar a EC2.
 3. Cree/preconfigure Google Cloud SQL PostgreSQL, habilite Cloud SQL Admin API, conectividad y cuenta de servicio con `roles/cloudsql.client`. Copie su clave JSON directamente a `/opt/experiencia-aws/secrets/cloud-sql-service-account.json` mediante un canal seguro (nunca al repo ni a GitHub Actions). Restringa permisos del archivo al usuario esperado por el contenedor del proxy.
-4. Defina `CLOUD_SQL_INSTANCE_CONNECTION_NAME` como `PROJECT_ID:REGION:INSTANCE`, y `DATABASE_URL` apuntando al proxy dentro de Compose: `postgresql+psycopg://<usuario-url-encoded>:<password-url-encoded>@cloud-sql-proxy:5432/<base>`.
+4. Defina `CLOUD_SQL_INSTANCE_CONNECTION_NAME` como `PROJECT_ID:REGION:INSTANCE`, y `DATABASE_URL` apuntando al proxy dentro de Compose: `postgresql+psycopg2://<usuario-url-encoded>:<password-url-encoded>@cloud-sql-proxy:5432/<base>`. Ese dialecto coincide con `psycopg2-binary`, instalado por `requirements.txt`.
 
 ### Runtime privado de EC2
 
@@ -167,7 +167,7 @@ No comparta stdout/stderr sin revisarlos: pueden contener detalles operativos. E
 
 ## 5. Smoke tests después del deploy
 
-El script remoto ya verifica `/health/ready` (hasta 12 intentos, intervalo de 5 s) y el contrato de `GET /` antes de reportar éxito de SSM. Después, desde un host con DNS público, compruebe el camino DNS/TLS/proxy completo sin imprimir body:
+El script remoto verifica `/health/ready` (hasta 12 intentos, intervalo de 5 s) y el contrato de `GET /` desde dentro del contenedor backend antes de reportar éxito de SSM. Compose no publica el puerto 8000 al host, por lo que esos probes usan `docker compose exec` hacia `127.0.0.1:8000` dentro del contenedor. Después, desde un host con DNS público, compruebe el camino DNS/TLS/proxy completo sin imprimir body:
 
 ```bash
 curl --fail --silent --show-error --max-time 15 \

@@ -156,14 +156,14 @@ def _run_deploy_with_root_response(tmp_path, root_response):
     _fake_executable(fake_bin / "aws", "#!/bin/sh\nprintf 'synthetic-password\\n'\n")
     _fake_executable(
         fake_bin / "docker",
-        '#!/bin/sh\nif [ "$1" = "login" ]; then cat >/dev/null; fi\nexit 0\n',
-    )
-    _fake_executable(
-        fake_bin / "curl",
-        '#!/bin/sh\ncase "$*" in\n'
-        "  *health/ready*) exit 0 ;;\n"
-        "  *) printf '%s' \"$ROOT_RESPONSE\"; exit 0 ;;\n"
-        "esac\n",
+        '''#!/bin/sh
+if [ "$1" = "login" ]; then cat >/dev/null; exit 0; fi
+case "$*" in
+  */health/ready*) exit 0 ;;
+  *127.0.0.1:8000/*) printf '%s' "$ROOT_RESPONSE"; exit 0 ;;
+esac
+exit 0
+''',
     )
 
     environment = os.environ.copy()

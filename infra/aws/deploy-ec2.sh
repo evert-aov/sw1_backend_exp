@@ -102,7 +102,7 @@ phase=readiness
 failure_probe=readiness_operation
 echo "Comprobando readiness local..."
 for i in $(seq 1 12); do
-  if curl -sS -f -o /dev/null http://127.0.0.1:8000/health/ready; then
+  if compose exec -T backend python -c 'import urllib.request; response = urllib.request.urlopen("http://127.0.0.1:8000/health/ready", timeout=5); assert 200 <= response.status < 300' >/dev/null 2>&1; then
     report readiness passed health_ready "$i"
     break
   fi
@@ -116,7 +116,7 @@ done
 phase=postdeploy
 failure_probe=root_contract
 echo "Comprobando contrato local postdeploy..."
-if ! root_response="$(curl -sS -f --max-time 10 http://127.0.0.1:8000/)"; then
+if ! root_response="$(compose exec -T backend python -c 'import urllib.request; print(urllib.request.urlopen("http://127.0.0.1:8000/", timeout=10).read().decode())' 2>/dev/null)"; then
   failure_cause_status=hypothesis
   false
 elif ! printf '%s' "$root_response" | python3 "$REPORT_HELPER" --validate-root-contract; then

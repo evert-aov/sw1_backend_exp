@@ -152,6 +152,7 @@ jobs:
             --parameters "$ssm_parameters" \
             --query 'Command.CommandId' \
             --output text)"
+          echo "SSM Command ID: $command_id"
 
           wait_status=0
           aws ssm wait command-executed --command-id "$command_id" --instance-id "$INSTANCE_ID" || wait_status=$?
