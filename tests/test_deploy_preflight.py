@@ -19,6 +19,7 @@ def valid_environment(**overrides: str) -> dict[str, str]:
         "GITHUB_EVENT_NAME": "workflow_dispatch",
         "GITHUB_REF": "refs/heads/main",
         "GITHUB_SHA": REVISION,
+        "DEPLOY_CONFIRMATION": "true",
         "WORKFLOW_RUN_EVENT": "",
         "WORKFLOW_RUN_BRANCH": "",
         "WORKFLOW_RUN_CONCLUSION": "",
@@ -69,24 +70,35 @@ def test_blocks_manual_dispatch_from_non_main_without_echoing_ref() -> None:
     assert "feature/unreviewed" not in json.dumps(report)
 
 
-def test_blocks_workflow_run_unless_successful_push_from_main() -> None:
+def test_blocks_workflow_run_even_after_successful_main_push() -> None:
     report = build_preflight_report(
         valid_environment(
             GITHUB_EVENT_NAME="workflow_run",
-            WORKFLOW_RUN_EVENT="pull_request",
-            WORKFLOW_RUN_BRANCH="feature/unreviewed",
+            WORKFLOW_RUN_EVENT="push",
+            WORKFLOW_RUN_BRANCH="main",
             WORKFLOW_RUN_CONCLUSION="success",
             DEPLOY_REVISION=REVISION,
         )
     )
 
     assert report["status"] == "blocked"
-    assert report["code"] == "DEPLOY.VALIDATION_NOT_PASSED"
-    assert report["evidence"]["source_event"] == "pull_request"
+    assert report["gate_status"] == "blocked"
+    assert report["code"] == "DEPLOY.TRIGGER_NOT_ALLOWED"
+
+
+def test_requires_explicit_confirmation_for_manual_dispatch() -> None:
+    report = build_preflight_report(valid_environment(DEPLOY_CONFIRMATION="false"))
+
+    assert report["status"] == "blocked"
+    assert report["gate_status"] == "blocked"
+    assert report["code"] == "DEPLOY.CONFIRMATION_REQUIRED"
+    assert report["cause_status"] == "confirmed"
 
 
 def test_marks_missing_aws_variables_not_configured_without_values() -> None:
-    environment = valid_environment(AWS_REGION="", AWS_EC2_INSTANCE_ID="")
+    environment = valid_environment(
+        AWS_REGION="", AWS_EC2_INSTANCE_ID="", DEPLOY_CONFIRMATION="false"
+    )
     report = build_preflight_report(environment)
 
     assert report["status"] == "not_configured"
@@ -119,9 +131,9 @@ def test_rejects_whitespace_around_values_consumed_verbatim() -> None:
     assert " backend-api " not in json.dumps(report)
 
 
-def test_accepts_valid_main_dispatch_and_successful_main_push() -> None:
+def test_accepts_confirmed_main_dispatch_only() -> None:
     dispatch = build_preflight_report(valid_environment())
-    push = build_preflight_report(
+    workflow_run = build_preflight_report(
         valid_environment(
             GITHUB_EVENT_NAME="workflow_run",
             WORKFLOW_RUN_EVENT="push",
@@ -131,10 +143,24 @@ def test_accepts_valid_main_dispatch_and_successful_main_push() -> None:
         )
     )
 
-    assert dispatch["status"] == push["status"] == "success"
-    assert dispatch["gate_status"] == push["gate_status"] == "allowed"
-    assert dispatch["revision"] == push["revision"] == REVISION
-    assert dispatch["schema"] == push["schema"] == "deployment-report/v1"
+    assert dispatch["status"] == "success"
+    assert dispatch["gate_status"] == "allowed"
+    assert workflow_run["status"] == "blocked"
+    assert workflow_run["code"] == "DEPLOY.TRIGGER_NOT_ALLOWED"
+    assert dispatch["revision"] == REVISION
+    assert dispatch["schema"] == "deployment-report/v1"
+
+
+def test_workflow_dispatch_requires_explicit_confirmation_and_is_the_only_trigger() -> None:
+    workflow = (ROOT / ".github/workflows/deploy-aws.yml").read_text(encoding="utf-8")
+
+    assert "\n  workflow_run:" not in workflow
+    assert "\n  workflow_dispatch:\n    inputs:\n      confirm_deployment:" in workflow
+    assert "default: false" in workflow
+    assert "inputs.confirm_deployment" in workflow
+    assert "needs.preflight.outputs.allowed == 'true'" in workflow
+    assert workflow.index("id: gate") < workflow.index("id: aws_auth")
+    assert workflow.index("  deploy:") < workflow.index("id-token: write")
 
 
 def test_cli_writes_safe_json_markdown_and_closed_output(tmp_path: Path) -> None:

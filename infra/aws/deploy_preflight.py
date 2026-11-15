@@ -32,6 +32,7 @@ class PreflightEvidence(TypedDict):
     source_event: str
     source_branch: str
     source_conclusion: str
+    confirmation: str
     missing_variables: list[str]
     invalid_variables: list[str]
 
@@ -62,6 +63,7 @@ def _event_evidence(environment: Mapping[str, str]) -> tuple[bool, dict[str, str
         "source_event": "not_applicable",
         "source_branch": "not_applicable",
         "source_conclusion": "not_applicable",
+        "confirmation": "not_applicable",
     }
 
     if event_name == "workflow_dispatch":
@@ -69,25 +71,9 @@ def _event_evidence(environment: Mapping[str, str]) -> tuple[bool, dict[str, str
         evidence["ref_class"] = "main" if ref == "refs/heads/main" else "non_main"
         if ref != "refs/heads/main":
             return False, evidence, "DEPLOY.BRANCH_NOT_ALLOWED"
-    elif event_name == "workflow_run":
-        source_event = environment.get("WORKFLOW_RUN_EVENT", "")
-        source_branch = environment.get("WORKFLOW_RUN_BRANCH", "")
-        source_conclusion = environment.get("WORKFLOW_RUN_CONCLUSION", "")
-        evidence.update(
-            {
-                "trigger": "workflow_run",
-                "ref_class": "main" if source_branch == "main" else "non_main",
-                "source_event": source_event
-                if source_event in {"push", "pull_request", "workflow_dispatch"}
-                else "other",
-                "source_branch": "main" if source_branch == "main" else "other",
-                "source_conclusion": source_conclusion
-                if source_conclusion in {"success", "failure", "cancelled"}
-                else "other",
-            }
+        evidence["confirmation"] = (
+            "confirmed" if environment.get("DEPLOY_CONFIRMATION", "").lower() == "true" else "not_confirmed"
         )
-        if source_event != "push" or source_branch != "main" or source_conclusion != "success":
-            return False, evidence, "DEPLOY.VALIDATION_NOT_PASSED"
     else:
         return False, evidence, "DEPLOY.TRIGGER_NOT_ALLOWED"
 
@@ -113,9 +99,7 @@ def build_preflight_report(environment: Mapping[str, str] | None = None) -> Pref
     if not allowed:
         status = "blocked"
         cause_status = "confirmed"
-        actions = [
-            "Run deployment only from main after successful CI on a main push; do not deploy feature or pull-request revisions."
-        ]
+        actions = ["Run deployment only with workflow_dispatch from main; automatic deployments after CI are disabled."]
     else:
         missing = sorted(name for name in REQUIRED_VARIABLES if not values.get(name, "").strip())
         invalid = sorted(
@@ -137,6 +121,13 @@ def build_preflight_report(environment: Mapping[str, str] | None = None) -> Pref
             cause_status = "confirmed"
             actions = [
                 "Correct the format of the listed GitHub Actions variables and rerun preflight; values are intentionally omitted from this report."
+            ]
+        elif evidence["confirmation"] != "confirmed":
+            status = "blocked"
+            code = "DEPLOY.CONFIRMATION_REQUIRED"
+            cause_status = "confirmed"
+            actions = [
+                "Set confirm_deployment to true only after reviewing the revision and confirming the protected aws-production environment."
             ]
         else:
             code = None

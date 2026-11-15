@@ -1,11 +1,13 @@
 name: Deploy AWS (Backend)
 
 on:
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
-    branches: [main]
   workflow_dispatch:
+    inputs:
+      confirm_deployment:
+        description: Confirm that this reviewed revision is intended for production.
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -25,7 +27,7 @@ jobs:
       - name: Checkout candidate without write credentials
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Set up Python 3.14
@@ -36,11 +38,9 @@ jobs:
       - name: Validate branch, revision, and required AWS variables
         id: gate
         env:
-          DEPLOY_REVISION: ${{ github.event.workflow_run.head_sha || github.sha }}
+          DEPLOY_REVISION: ${{ github.sha }}
           DEPLOY_ENVIRONMENT: aws-production
-          WORKFLOW_RUN_EVENT: ${{ github.event.workflow_run.event || '' }}
-          WORKFLOW_RUN_BRANCH: ${{ github.event.workflow_run.head_branch || '' }}
-          WORKFLOW_RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion || '' }}
+          DEPLOY_CONFIRMATION: ${{ inputs.confirm_deployment }}
           AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           AWS_REGION: ${{ vars.AWS_REGION }}
           AWS_ECR_REPOSITORY_BACKEND: ${{ vars.AWS_ECR_REPOSITORY_BACKEND }}
@@ -63,11 +63,9 @@ jobs:
     if: >-
       needs.preflight.result == 'success' &&
       needs.preflight.outputs.allowed == 'true' &&
-      ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
-       (github.event_name == 'workflow_run' &&
-        github.event.workflow_run.conclusion == 'success' &&
-        github.event.workflow_run.event == 'push' &&
-        github.event.workflow_run.head_branch == 'main'))
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      inputs.confirm_deployment
     runs-on: ubuntu-latest
     environment: aws-production
     permissions:
