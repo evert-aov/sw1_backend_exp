@@ -88,7 +88,7 @@ Traefik v3 gestionará de manera automática los certificados SSL con Let's Encr
 
 El preflight emite el contrato independiente `deployment-report/v1`, distinto del contrato de diagnóstico de la aplicación. Sus campos requeridos incluyen `project`, `revision`, `environment`, `phase`, `status`, `duration_ms`, `gate_status`, `code`, `cause_status`, `evidence`, `possible_causes` y `recommended_actions`. Los reportes describen únicamente evidencia observada; las causas no confirmadas se mantienen como hipótesis y no incluyen valores de configuración.
 
-Configure estas **GitHub Actions repository variables** en el sandbox, no como secretos ni en archivos del repositorio:
+Configure estas **GitHub Actions repository variables** en el repositorio de destino autorizado para el despliegue, no como secretos ni en archivos versionados:
 
 | Variable | Uso y formato validado |
 | --- | --- |
@@ -97,7 +97,7 @@ Configure estas **GitHub Actions repository variables** en el sandbox, no como s
 | `AWS_ECR_REPOSITORY_BACKEND` | Nombre/ruta de repositorio ECR en minúsculas, sin espacios periféricos. |
 | `AWS_EC2_INSTANCE_ID` | ID de instancia, formato `i-` seguido por 8 o 17 caracteres hexadecimales, sin espacios periféricos. |
 
-No se requieren claves estáticas `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`. La confianza del rol OIDC debe limitarse al repositorio sandbox, al entorno `aws-production` y a `refs/heads/main`; revisar/configurar esa política, el entorno y sus aprobaciones es una tarea externa y no queda verificada por este repositorio. El preflight guarda JSON como artefacto de Actions y expone únicamente nombres de variables faltantes o inválidas, nunca sus valores.
+No se requieren claves estáticas `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`. La confianza del rol OIDC debe limitarse al repositorio de destino autorizado, al entorno `aws-production` y a `refs/heads/main`; revisar/configurar esa política, el entorno y sus aprobaciones es una tarea externa y no queda verificada por este repositorio. El preflight guarda JSON como artefacto de Actions y expone únicamente nombres de variables faltantes o inválidas, nunca sus valores.
 
 Prueba local sin acceso cloud:
 
