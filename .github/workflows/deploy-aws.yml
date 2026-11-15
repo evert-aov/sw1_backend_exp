@@ -79,17 +79,6 @@ jobs:
           ref: ${{ needs.preflight.outputs.revision }}
           persist-credentials: false
 
-      - name: Authenticate with AWS via OIDC
-        id: aws_auth
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-
-      - name: Login to Amazon ECR
-        id: ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
       - name: Set up Docker Buildx
         id: buildx
         uses: docker/setup-buildx-action@v3
@@ -97,14 +86,32 @@ jobs:
       - name: Build Docker image
         id: build
         env:
-          REGISTRY: ${{ steps.ecr.outputs.registry }}
           REPOSITORY: ${{ vars.AWS_ECR_REPOSITORY_BACKEND }}
           IMAGE_TAG: ${{ needs.preflight.outputs.revision }}-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           docker buildx build --load \
             --file Dockerfile \
-            --tag "$REGISTRY/$REPOSITORY:$IMAGE_TAG" \
+            --tag "$REPOSITORY:$IMAGE_TAG" \
             .
+
+      - name: Authenticate with AWS via OIDC
+        id: aws_auth
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Authenticate Docker to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Tag image for ECR
+        id: tag_ecr
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          REPOSITORY: ${{ vars.AWS_ECR_REPOSITORY_BACKEND }}
+          IMAGE_TAG: ${{ needs.preflight.outputs.revision }}-${{ github.run_id }}-${{ github.run_attempt }}
+        run: docker tag "$REPOSITORY:$IMAGE_TAG" "$REGISTRY/$REPOSITORY:$IMAGE_TAG"
 
       - name: Publish Docker image to ECR
         id: publish
@@ -177,104 +184,13 @@ jobs:
         if: always()
         env:
           CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
-          AUTH_OUTCOME: ${{ steps.aws_auth.outcome }}
-          ECR_OUTCOME: ${{ steps.ecr.outcome }}
           BUILDX_OUTCOME: ${{ steps.buildx.outcome }}
           BUILD_OUTCOME: ${{ steps.build.outcome }}
           PUBLISH_OUTCOME: ${{ steps.publish.outcome }}
           DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
+          ECR_LOGIN_OUTCOME: ${{ steps.ecr.outcome }}
+          TAG_ECR_OUTCOME: ${{ steps.tag_ecr.outcome }}
+          AWS_AUTH_OUTCOME: ${{ steps.aws_auth.outcome }}
           VERSION: ${{ needs.preflight.outputs.revision }}
           REMOTE_PHASE_REPORTS: ${{ steps.deploy.outputs.phase_reports }}
-        run: |
-          python3 - <<'PY'
-          import json
-          import os
-          import subprocess
-
-          version = os.environ.get("VERSION", "unknown") or "unknown"
-          reports = []
-
-          def append_report(phase, status, *, code=None, cause_status="unknown", evidence=None):
-              event = {
-                  "service": "experiencia-backend",
-                  "version": version,
-                  "phase": phase,
-                  "status": status,
-                  "code": code,
-                  "cause_status": cause_status,
-                  "evidence": evidence or {"probe": "github_step_outcome", "source": "github"},
-              }
-              try:
-                  result = subprocess.run(
-                      ["python3", "infra/aws/deploy-report.py"],
-                      input=json.dumps(event), text=True, capture_output=True, check=True,
-                  )
-                  reports.append(json.loads(result.stdout))
-              except (OSError, subprocess.CalledProcessError):
-                  reports.append({
-                      "schema": "diagnostic-report/v1",
-                      "service": "experiencia-backend",
-                      "version": version,
-                      "phase": phase,
-                      "status": status,
-                      "code": code,
-                      "cause_status": cause_status,
-                      "evidence": evidence or {},
-                      "possible_causes": ["The report helper could not run; the underlying phase result remains the observed evidence."],
-                      "recommended_actions": ["Inspect the named Actions step and validate the report helper in a local environment."],
-                  })
-
-          outcomes = {
-              name: os.environ.get(f"{name.upper()}_OUTCOME", "unknown")
-              for name in ("checkout", "auth", "ecr", "buildx", "build", "publish", "deploy")
-          }
-          preparation_steps = ("checkout", "auth", "ecr", "buildx")
-          first_preparation_issue = next((name for name in preparation_steps if outcomes[name] != "success"), None)
-          preparation = "passed" if first_preparation_issue is None else "failed" if outcomes[first_preparation_issue] in ("failure", "cancelled") else "not_verified"
-          append_report(
-              "preparation", preparation,
-              code="DEPLOY.PREPARATION_FAILED" if preparation == "failed" else None,
-              cause_status="hypothesis" if preparation == "failed" else "unknown",
-              evidence={"probe": "github_step_outcome", "source": "github", "step": first_preparation_issue or "buildx_setup", "outcome": outcomes[first_preparation_issue] if first_preparation_issue else "success"},
-          )
-          for phase, step, error_code in (
-              ("build", "build", "DEPLOY.BUILD_FAILED"),
-              ("publication", "publish", "DEPLOY.PUBLICATION_FAILED"),
-          ):
-              outcome = outcomes[step]
-              status = "passed" if outcome == "success" else "failed" if outcome in ("failure", "cancelled") else "not_verified"
-              append_report(
-                  phase, status,
-                  code=error_code if status == "failed" else None,
-                  cause_status="hypothesis" if status == "failed" else "unknown",
-                  evidence={"probe": "github_step_outcome", "source": "github", "step": step, "outcome": outcome},
-              )
-
-          remote = []
-          for line in os.environ.get("REMOTE_PHASE_REPORTS", "").splitlines():
-              try:
-                  report = json.loads(line)
-              except json.JSONDecodeError:
-                  continue
-              if report.get("schema") == "diagnostic-report/v1" and report.get("service") == "experiencia-backend":
-                  remote.append(report)
-          phases = {report["phase"] for report in remote}
-          reports.extend(remote)
-          for phase in ("preparation", "startup", "readiness", "postdeploy"):
-              if phase not in phases:
-                  probe = "configuration" if phase == "preparation" else "runtime_health_check"
-                  append_report(
-                      phase,
-                      "not_verified",
-                      evidence={"probe": probe, "source": "ec2", "step": "ssm_deploy", "outcome": outcomes["deploy"]},
-                  )
-
-          rendered = json.dumps(reports, indent=2, sort_keys=True)
-          print(rendered)
-          summary = os.environ.get("GITHUB_STEP_SUMMARY")
-          if summary:
-              with open(summary, "a", encoding="utf-8") as stream:
-                  stream.write("## Deployment diagnostic report\n\n")
-                  stream.write("Build and ECR publication are reported separately; runtime phases are included only when EC2 returns their structured report.\n\n")
-                  stream.write("```json\n" + rendered + "\n```\n")
-          PY
+        run: python3 infra/aws/deploy_workflow_report.py
