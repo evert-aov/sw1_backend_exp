@@ -32,6 +32,7 @@ from app.core.database import init_db
 from app.core.system_controller import system_router
 from app.experience.control import category_router, experience_router, venue_router
 from app.live.control import age_distribution_router, live_router, report_router
+from app.live.control.live_telemetry_controller import live_telemetry_router
 from app.matching.control import demand_router, matching_router
 from app.notifications.controller import notification_router
 
@@ -201,6 +202,7 @@ app.include_router(notification_router, prefix=settings.API_V1_STR)
 app.include_router(live_router, prefix=settings.API_V1_STR)
 app.include_router(report_router, prefix=settings.API_V1_STR)
 app.include_router(age_distribution_router, prefix=settings.API_V1_STR)
+app.include_router(live_telemetry_router, prefix=settings.API_V1_STR)
 
 app.include_router(system_router, prefix=settings.API_V1_STR)
 
