@@ -405,3 +405,119 @@ def test_websocket_closes_with_application_code_when_unauthorized():
             with pytest.raises(WebSocketDisconnect) as closed:
                 ws.receive_json()
     assert closed.value.code == 4403
+
+
+# ---------------------------------------------------------------- vinculación de monitor (tablet / celular)
+
+from fastapi import HTTPException  # noqa: E402
+
+from app.core.security import create_access_token, decode_token  # noqa: E402
+from app.live.service.live_monitor_pairing import (  # noqa: E402
+    CODE_TTL_SECONDS,
+    MAX_FAILED_ATTEMPTS,
+    MonitorClaims,
+    MonitorPairingError,
+    MonitorPairingService,
+    create_monitor_token,
+    decode_monitor_token,
+)
+
+
+class MonotonicClock:
+    """Reloj monotónico controlable."""
+
+    def __init__(self):
+        """Inicia en un instante arbitrario."""
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        """Devuelve el instante simulado."""
+        return self.now
+
+
+def test_monitor_code_is_single_use_and_case_insensitive():
+    pairing = MonitorPairingService(clock=MonotonicClock())
+    code, ttl = pairing.issue_code(SESSION_ID, "host-1")
+    assert len(code) == 6 and ttl == CODE_TTL_SECONDS
+    assert not set(code) & set("01OIL")
+    claims = pairing.redeem(f" {code[:3].lower()} {code[3:]} ", "10.0.0.1")
+    assert claims == MonitorClaims(session_id=SESSION_ID, host_id="host-1")
+    with pytest.raises(MonitorPairingError):
+        pairing.redeem(code, "10.0.0.1")
+
+
+def test_monitor_code_expires():
+    clock = MonotonicClock()
+    pairing = MonitorPairingService(clock=clock)
+    code, _ = pairing.issue_code(SESSION_ID, "host-1")
+    clock.now += CODE_TTL_SECONDS + 1
+    with pytest.raises(MonitorPairingError):
+        pairing.redeem(code, "10.0.0.1")
+
+
+def test_monitor_redeem_blocks_brute_force_per_client():
+    pairing = MonitorPairingService(clock=MonotonicClock())
+    code, _ = pairing.issue_code(SESSION_ID, "host-1")
+    for _ in range(MAX_FAILED_ATTEMPTS):
+        with pytest.raises(MonitorPairingError):
+            pairing.redeem("ZZZZZZ", "attacker")
+    with pytest.raises(MonitorPairingError) as blocked:
+        pairing.redeem(code, "attacker")
+    assert blocked.value.too_many_attempts
+    assert pairing.redeem(code, "tablet").session_id == SESSION_ID  # otro cliente no queda bloqueado
+
+
+def test_monitor_token_roundtrip_and_isolation_from_api_tokens():
+    token, _ = create_monitor_token(SESSION_ID, "host-1")
+    assert decode_monitor_token(token) == MonitorClaims(session_id=SESSION_ID, host_id="host-1")
+    # El token de monitor no sirve como token de la API...
+    with pytest.raises(HTTPException) as rejected:
+        decode_token(token)
+    assert rejected.value.status_code == 401
+    # ...y un token normal de la API no se interpreta como monitor
+    assert decode_monitor_token(create_access_token("host-1")) is None
+    assert decode_monitor_token("basura") is None
+
+
+def test_monitor_token_expired_is_rejected():
+    token, _ = create_monitor_token(SESSION_ID, "host-1", now=datetime.now(timezone.utc) - timedelta(days=1))
+    assert decode_monitor_token(token) is None
+
+
+class FakeHostRepository(FakeUserRepository):
+    """Repositorio de usuarios falso que también resuelve al anfitrión por ID."""
+
+    active = True
+
+    def get_by_id(self, user_id):
+        """Devuelve un anfitrión activo o inactivo según la configuración."""
+        return SimpleNamespace(id=user_id, is_active=self.active)
+
+
+@pytest.fixture
+def monitor_repositories():
+    with patch.object(access, "UserRepository", FakeHostRepository), patch.object(
+        access, "LiveTelemetryRepository", FakeTelemetryRepository
+    ):
+        FakeHostRepository.active = True
+        FakeTelemetryRepository.live_session = SimpleNamespace(host_id="host-1")
+        yield
+
+
+def test_monitor_authorized_only_for_its_session(monitor_repositories):
+    claims = MonitorClaims(session_id=SESSION_ID, host_id="host-1")
+    assert access.authorize_monitor(None, SESSION_ID, claims) == SESSION_ID
+    with pytest.raises(access.TelemetryAccessError) as other:
+        access.authorize_monitor(None, "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c", claims)
+    assert other.value.ws_close_code == 4403
+
+
+def test_monitor_revoked_when_host_changes_or_is_deactivated(monitor_repositories):
+    claims = MonitorClaims(session_id=SESSION_ID, host_id="host-1")
+    FakeHostRepository.active = False
+    with pytest.raises(access.TelemetryAccessError):
+        access.authorize_monitor(None, SESSION_ID, claims)
+    FakeHostRepository.active = True
+    FakeTelemetryRepository.live_session = SimpleNamespace(host_id="host-2")
+    with pytest.raises(access.TelemetryAccessError):
+        access.authorize_monitor(None, SESSION_ID, claims)

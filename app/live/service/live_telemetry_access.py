@@ -16,6 +16,7 @@ from app.auth.repository.user_repository import UserRepository
 from app.booking.service.booking_service import uuid_string
 from app.core.security import decode_token
 from app.live.repository.live_telemetry_repository import LiveTelemetryRepository
+from app.live.service.live_monitor_pairing import MonitorClaims
 
 # Roles con acceso a la consola (VENUE se mantiene por compatibilidad, igual que HU-16)
 CONSOLE_ROLES = frozenset({"HOST", "VENUE", "ADMIN"})
@@ -79,6 +80,42 @@ def authorize_console_viewer(db: Session, session_id: str, user: User) -> str:
 
     if "ADMIN" not in roles and str(live_session.host_id) != str(user.id):
         raise TelemetryAccessError(status.HTTP_403_FORBIDDEN, WS_CLOSE_FORBIDDEN, "No administras esta sesión en vivo")
+    return canonical_id
+
+
+def authorize_monitor(db: Session, session_id: str, claims: MonitorClaims) -> str:
+    """
+    Verifica que un token de monitor (tablet o celular vinculado) corresponda a la sesión pedida.
+
+    Args:
+        db (Session): Sesión de base de datos.
+        session_id (str): ID de la sesión en vivo recibido en la ruta.
+        claims (MonitorClaims): Datos verificados del token de monitor.
+
+    Returns:
+        str: UUID canónico de la sesión autorizada.
+
+    Raises:
+        TelemetryAccessError: 404 si la sesión no existe y 403 si el token es de otra sesión,
+            el anfitrión ya no la administra o su cuenta fue desactivada.
+    """
+    try:
+        canonical_id = uuid_string(session_id)
+    except HTTPException as exc:
+        raise TelemetryAccessError(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, WS_CLOSE_NOT_FOUND, "ID de sesión inválido"
+        ) from exc
+
+    if claims.session_id != canonical_id:
+        raise TelemetryAccessError(status.HTTP_403_FORBIDDEN, WS_CLOSE_FORBIDDEN, "El monitor está vinculado a otra sesión")
+
+    live_session = LiveTelemetryRepository(db).get_session(canonical_id)
+    if live_session is None:
+        raise TelemetryAccessError(status.HTTP_404_NOT_FOUND, WS_CLOSE_NOT_FOUND, "Sesión en vivo no encontrada")
+
+    host = UserRepository(db).get_by_id(claims.host_id)
+    if str(live_session.host_id) != claims.host_id or host is None or not host.is_active:
+        raise TelemetryAccessError(status.HTTP_403_FORBIDDEN, WS_CLOSE_FORBIDDEN, "La vinculación ya no es válida")
     return canonical_id
 
 

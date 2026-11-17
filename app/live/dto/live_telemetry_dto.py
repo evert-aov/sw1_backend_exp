@@ -77,3 +77,27 @@ class LiveTelemetrySnapshotDTO(BaseModel):
     pulse: list[PulsePointDTO] = Field(
         default_factory=list, description="Últimos puntos de energía (ventana de 60 s) para la gráfica de pulso"
     )
+
+
+class MonitorCodeDTO(BaseModel):
+    """Código de un solo uso para vincular una tablet o celular como monitor de la sesión (HU-17)."""
+
+    code: str = Field(..., min_length=6, max_length=6, description="Código de 6 caracteres a ingresar en la app")
+    session_id: str = Field(..., description="ID de la sesión en vivo vinculada")
+    expires_in_seconds: int = Field(..., gt=0, description="Segundos de validez del código")
+
+
+class MonitorRedeemDTO(BaseModel):
+    """Solicitud de canje de un código de monitor desde la app móvil (HU-17)."""
+
+    code: str = Field(..., min_length=6, max_length=12, description="Código mostrado en la consola web")
+
+
+class MonitorTokenDTO(BaseModel):
+    """Token de solo lectura que permite al dispositivo observar la telemetría de una sesión (HU-17)."""
+
+    access_token: str = Field(..., description="Token de monitor; no sirve para otros endpoints de la API")
+    token_type: Literal["monitor"] = Field(default="monitor", description="Tipo de token")
+    session_id: str = Field(..., description="ID de la sesión en vivo que puede observar")
+    experience_title: str = Field(..., description="Título de la experiencia transmitida")
+    expires_at: datetime = Field(..., description="Fecha de expiración del token en UTC")
