@@ -17,23 +17,37 @@ if __name__ == "__main__":
         _sock.close()
         _prebound_socket = None
 
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
-from typing import Any
-from fastapi import FastAPI, Request, status
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.openapi.utils import get_openapi
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field
-from app.auth.control import auth_router, users_router
-from app.booking.control import booking_router, payment_router, subscription_router
-from app.core.config import settings
-from app.core.database import init_db
-from app.core.system_controller import system_router
-from app.experience.control import category_router, experience_router, venue_router
-from app.live.control import age_distribution_router, live_router, report_router
-from app.matching.control import demand_router, matching_router
-from app.notifications.controller import notification_router
+from collections.abc import AsyncGenerator  # noqa: E402
+from contextlib import asynccontextmanager  # noqa: E402
+from typing import Any  # noqa: E402
+
+# Estas importaciones quedan debajo del prebind opcional; las excepciones E402 se limitan a estas líneas.
+from app.auth.control import auth_router, users_router  # noqa: E402
+from app.booking.control import booking_router, payment_router, subscription_router  # noqa: E402
+from app.core.config import settings  # noqa: E402
+from app.core.database import engine, init_db  # noqa: E402
+from app.core.diagnostics import (  # noqa: E402
+    REQUEST_ID_HEADER,
+    CauseStatus,
+    ErrorCode,
+    RequestIdMiddleware,
+    error_payload,
+    install_diagnostic_handlers,
+    log_diagnostic_event,
+    log_operational_event,
+)
+from app.core.system_controller import system_router  # noqa: E402
+from app.experience.control import category_router, experience_router, venue_router  # noqa: E402
+from app.live.control import age_distribution_router, live_router, report_router  # noqa: E402
+from app.matching.control import demand_router, matching_router  # noqa: E402
+from app.notifications.controller import notification_router  # noqa: E402
+from fastapi import FastAPI, Request, status  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from fastapi.openapi.utils import get_openapi  # noqa: E402
+from fastapi.responses import JSONResponse  # noqa: E402
+from pydantic import BaseModel, ConfigDict, Field  # noqa: E402
+from sqlalchemy import text  # noqa: E402
+from sqlalchemy.exc import SQLAlchemyError  # noqa: E402
 
 
 class HealthCheckResponseDTO(BaseModel):
@@ -51,9 +65,13 @@ class HealthCheckResponseDTO(BaseModel):
         default_factory=list,
         description="Casos de uso del Sprint 1 verificados y activos",
     )
-    swagger_ui: str = Field(default="/docs", description="Ruta hacia la documentación interactiva Swagger UI")
+    swagger_ui: str = Field(
+        default="/docs", description="Ruta hacia la documentación interactiva Swagger UI"
+    )
     redoc: str = Field(default="/redoc", description="Ruta hacia la documentación ReDoc")
-    openapi_schema: str = Field(default="/openapi.json", description="Ruta hacia el esquema OpenAPI JSON")
+    openapi_schema: str = Field(
+        default="/openapi.json", description="Ruta hacia el esquema OpenAPI JSON"
+    )
 
 
 @asynccontextmanager
@@ -63,10 +81,39 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     Verifica PostgreSQL antes de aceptar tráfico y libera el pool al cerrar.
     """
     import asyncio
+
     from app.core.database import engine
 
+    log_operational_event(
+        event="startup.check_started",
+        service=settings.PROJECT_NAME,
+        version=settings.VERSION,
+        evidence={"dependency": "postgresql", "phase": "startup"},
+    )
     try:
         await asyncio.to_thread(init_db)
+    except Exception as exc:
+        log_diagnostic_event(
+            event="startup.check_failed",
+            service=settings.PROJECT_NAME,
+            version=settings.VERSION,
+            request_id=None,
+            error_code=ErrorCode.INTERNAL_ERROR,
+            cause_status=CauseStatus.HYPOTHESIS,
+            evidence={
+                "dependency": "postgresql",
+                "phase": "startup",
+                "exception_type": type(exc).__name__,
+            },
+        )
+        raise
+    log_operational_event(
+        event="startup.ready",
+        service=settings.PROJECT_NAME,
+        version=settings.VERSION,
+        evidence={"dependency": "postgresql", "phase": "startup"},
+    )
+    try:
         yield
     finally:
         engine.dispose()
@@ -178,12 +225,20 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=[REQUEST_ID_HEADER],
 )
+app.add_middleware(
+    RequestIdMiddleware,
+    service=settings.PROJECT_NAME,
+    version=settings.VERSION,
+)
+install_diagnostic_handlers(app, service=settings.PROJECT_NAME, version=settings.VERSION)
 
 # Registro de routers por paquetes
 app.include_router(auth_router, prefix=settings.API_V1_STR)
 app.include_router(users_router, prefix=settings.API_V1_STR)
-from app.admin.controller import admin_router
+from app.admin.controller import admin_router  # noqa: E402
+
 app.include_router(admin_router, prefix=settings.API_V1_STR)
 
 app.include_router(experience_router, prefix=settings.API_V1_STR)
@@ -203,17 +258,6 @@ app.include_router(report_router, prefix=settings.API_V1_STR)
 app.include_router(age_distribution_router, prefix=settings.API_V1_STR)
 
 app.include_router(system_router, prefix=settings.API_V1_STR)
-
-
-@app.exception_handler(Exception)
-async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    """Manejador global de excepciones no controladas para garantizar respuestas CORS y registro detallado."""
-    import logging
-    logging.exception("Error 500 no controlado en %s %s: %s", request.method, request.url.path, exc)
-    return JSONResponse(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"detail": "Error interno del servidor. Por favor intente más tarde."},
-    )
 
 
 def custom_openapi() -> dict[str, Any]:
@@ -250,7 +294,6 @@ def custom_openapi() -> dict[str, Any]:
             "description": "Pega tu access_token JWT aquí (funciona con o sin 'Bearer').",
         },
     }
-
 
     app.openapi_schema = openapi_schema
     return app.openapi_schema
@@ -291,6 +334,52 @@ def health_check() -> HealthCheckResponseDTO:
     )
 
 
+@app.get("/health/live", tags=["Health Check"], summary="Verificar que el proceso está activo")
+def liveness_check() -> dict[str, str]:
+    """Comprueba el proceso sin consultar dependencias externas."""
+    return {"status": "live", "service": settings.PROJECT_NAME, "version": settings.VERSION}
+
+
+@app.get(
+    "/health/ready",
+    response_model=None,
+    tags=["Health Check"],
+    summary="Verificar disponibilidad de dependencias",
+)
+def readiness_check(request: Request) -> JSONResponse:
+    """Comprueba PostgreSQL con una consulta de solo lectura y sin alterar `/`."""
+    request_id = getattr(request.state, "request_id", None)
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+    except SQLAlchemyError as exc:
+        log_diagnostic_event(
+            event="readiness.dependency_unavailable",
+            service=settings.PROJECT_NAME,
+            version=settings.VERSION,
+            request_id=request_id,
+            error_code=ErrorCode.DEPENDENCY_UNAVAILABLE,
+            cause_status=CauseStatus.HYPOTHESIS,
+            evidence={
+                "dependency": "postgresql",
+                "phase": "readiness",
+                "exception_type": type(exc).__name__,
+            },
+        )
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content=error_payload(
+                "Dependencia requerida no disponible.",
+                ErrorCode.DEPENDENCY_UNAVAILABLE,
+                request_id,
+            ),
+        )
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={"status": "ready", "service": settings.PROJECT_NAME, "version": settings.VERSION},
+    )
+
+
 if __name__ == "__main__":
     import uvicorn
 
@@ -302,4 +391,3 @@ if __name__ == "__main__":
         server.run(sockets=[_prebound_socket])
     else:
         server.run()
-

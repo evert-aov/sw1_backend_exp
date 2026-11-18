@@ -1,0 +1,122 @@
+name: experiencia-aws
+
+services:
+  reverse-proxy:
+    image: traefik:v3.6.13
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    command:
+      - "--api.dashboard=false"
+      - "--ping=true"
+      - "--entrypoints.http.address=:80"
+      - "--entrypoints.http.http.redirections.entrypoint.to=https"
+      - "--entrypoints.http.http.redirections.entrypoint.scheme=https"
+      - "--entrypoints.https.address=:443"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=experiencia-aws-edge"
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:?ACME_EMAIL must be set}"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=http"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${EXPERIENCIA_AWS_STATE_DIR:-/opt/experiencia-aws/state}/letsencrypt:/letsencrypt
+    networks:
+      - edge
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  cloud-sql-proxy:
+    image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.27.0
+    restart: unless-stopped
+    command:
+      - "--address=0.0.0.0"
+      - "--port=5432"
+      - "--credentials-file=/secrets/cloud-sql-service-account.json"
+      - ${CLOUD_SQL_INSTANCE_CONNECTION_NAME:?CLOUD_SQL_INSTANCE_CONNECTION_NAME must be set}
+    volumes:
+      - ${CLOUD_SQL_CREDENTIALS_FILE:-/opt/experiencia-aws/secrets/cloud-sql-service-account.json}:/secrets/cloud-sql-service-account.json:ro
+    networks:
+      - app
+      - egress
+    security_opt:
+      - no-new-privileges:true
+
+  backend:
+    image: ${ECR_REGISTRY:?ECR_REGISTRY must be set}/${ECR_REPOSITORY_BACKEND:?ECR_REPOSITORY_BACKEND must be set}:${IMAGE_TAG:?IMAGE_TAG must be set}
+    restart: unless-stopped
+    environment:
+      PORT: "8000"
+      HOST: "0.0.0.0"
+      DB_SYNCHRONIZE: "false"
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
+      BOOKING_HOLD_MINUTES: ${BOOKING_HOLD_MINUTES:-15}
+      PAYMENT_CURRENCY: ${PAYMENT_CURRENCY:-BOB}
+      STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      FRONTEND_URL: ${FRONTEND_URL:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-["*"]}
+      AGE_FACE_DETECTOR_PATH: ${AGE_FACE_DETECTOR_PATH:-}
+      AGE_CLASSIFIER_PROTOTXT_PATH: ${AGE_CLASSIFIER_PROTOTXT_PATH:-}
+      AGE_CLASSIFIER_MODEL_PATH: ${AGE_CLASSIFIER_MODEL_PATH:-}
+    depends_on:
+      cloud-sql-proxy:
+        condition: service_started
+    volumes:
+      - ${EXPERIENCIA_AWS_MODELS_DIR:-/opt/experiencia-aws/models}:/app/models:ro
+    networks:
+      - edge
+      - app
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=experiencia-aws-edge"
+      - "traefik.http.routers.backend.rule=Host(`${AWS_API_HOST:?AWS_API_HOST must be set}`)"
+      - "traefik.http.routers.backend.entrypoints=https"
+      - "traefik.http.routers.backend.tls=true"
+      - "traefik.http.routers.backend.tls.certresolver=letsencrypt"
+      - "traefik.http.services.backend.loadbalancer.server.port=8000"
+
+  cron-worker:
+    image: ${ECR_REGISTRY:?ECR_REGISTRY must be set}/${ECR_REPOSITORY_BACKEND:?ECR_REPOSITORY_BACKEND must be set}:${IMAGE_TAG:?IMAGE_TAG must be set}
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
+    depends_on:
+      cloud-sql-proxy:
+        condition: service_started
+    command: >
+      sh -c "
+      echo 'Iniciando cron worker para EXPERIENCIA...';
+      while true; do
+        python scripts/expire_bookings.py || true;
+        python scripts/expire_matching_groups.py || true;
+        python scripts/reconcile_payments.py || true;
+        sleep 120;
+      done
+      "
+    networks:
+      - app
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  edge:
+    name: experiencia-aws-edge
+  app:
+    name: experiencia-aws-app
+  egress:
+    name: experiencia-aws-egress

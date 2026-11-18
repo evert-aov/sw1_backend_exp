@@ -1,0 +1,3 @@
+-r requirements.txt
+pyright==1.1.414
+ruff==0.17.5

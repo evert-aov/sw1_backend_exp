@@ -1,0 +1,40 @@
+name: PR conventions
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-conventions-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  conventions:
+    name: Conventional Commits
+    runs-on: ubuntu-latest
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      PR_TITLE: ${{ github.event.pull_request.title }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install commitlint packages
+        run: |
+          npm install --prefix "$RUNNER_TEMP/commitlint" --no-save --package-lock=false --ignore-scripts --no-audit --no-fund @commitlint/cli@19.6.1 @commitlint/config-conventional@19.6.0
+          mkdir -p node_modules/@commitlint
+          ln -s "$RUNNER_TEMP/commitlint/node_modules/@commitlint/config-conventional" node_modules/@commitlint/config-conventional
+      - name: Commit messages follow Conventional Commits
+        run: |
+          "$RUNNER_TEMP/commitlint/node_modules/.bin/commitlint" --from "$BASE_SHA" --to "$HEAD_SHA" --verbose
+      - name: PR title follows Conventional Commits (it becomes the squash commit)
+        run: |
+          printf '%s\n' "$PR_TITLE" | "$RUNNER_TEMP/commitlint/node_modules/.bin/commitlint" --verbose

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import os
+import re
 from pathlib import Path
+
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field
 from sqlalchemy.engine import URL, make_url
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
@@ -30,29 +31,29 @@ class Settings(BaseSettings):
     PAYMENT_CURRENCY: str = Field(default="BOB", pattern="^[A-Z]{3}$")
 
     # Base de Datos PostgreSQL
-    DB_HOST: str = os.getenv("DB_HOST", "localhost")
-    DB_PORT: int = int(os.getenv("DB_PORT", 5432))
+    DB_HOST: str = "localhost"
+    DB_PORT: int = Field(default=5432, ge=1, le=65535)
     DB_USER: str = ""
     DB_PASS: str = ""
-    DB_NAME: str = os.getenv("DB_NAME", "experiencia_db")
+    DB_NAME: str = "experiencia_db"
     # Desarrollo: aplica Alembic al arrancar. False: exige migración explícita previa.
     DB_SYNCHRONIZE: bool = False
-    DB_LOGGING: bool = os.getenv("DB_LOGGING", "false").lower() in ("true", "1", "t")
+    DB_LOGGING: bool = False
 
     # Seguridad JWT
     JWT_SECRET: str
-    JWT_EXPIRES_IN: str = os.getenv("JWT_EXPIRES_IN", "1d")
+    JWT_EXPIRES_IN: str = "1d"
     ALGORITHM: str = "HS256"
 
     # Pasarela de pagos Stripe
     # Hosted Checkout no necesita exponer esta clave al cliente; se conserva para futuras integraciones.
     STRIPE_PUBLISHABLE_KEY: str = ""
-    STRIPE_SECRET_KEY: str = os.getenv("STRIPE_SECRET_KEY", "sk_test_placeholder")
-    STRIPE_WEBHOOK_SECRET: str = os.getenv("STRIPE_WEBHOOK_SECRET", "whsec_placeholder")
+    STRIPE_SECRET_KEY: str = ""
+    STRIPE_WEBHOOK_SECRET: str = ""
     FRONTEND_URL: str = "http://localhost:3000"
 
     # Comisión de la plataforma por defecto (%)
-    PLATFORM_FEE_PERCENTAGE: float = float(os.getenv("PLATFORM_FEE_PERCENTAGE", 10.0))
+    PLATFORM_FEE_PERCENTAGE: float = Field(default=10.0, ge=0.0, le=100.0)
 
     # Modelos OpenCV de estimación etaria (HU-16): rutas absolutas o relativas a la carpeta del backend.
     # Vacías o inexistentes: el estimador no se registra y la API informa estimator_configured=false.
@@ -61,7 +62,7 @@ class Settings(BaseSettings):
     AGE_CLASSIFIER_MODEL_PATH: str = ""
 
     # URL PostgreSQL opcional; tiene prioridad sobre los campos DB_*.
-    DATABASE_URL: str | None = os.getenv("DATABASE_URL")
+    DATABASE_URL: str | None = None
 
     # Orígenes CORS permitidos
     CORS_ORIGINS: list[str] = [
@@ -71,6 +72,22 @@ class Settings(BaseSettings):
         "http://localhost:8080",
         "*",
     ]
+
+    @field_validator("JWT_SECRET")
+    @classmethod
+    def jwt_secret_must_not_be_empty(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("JWT_SECRET must not be empty.")
+        return value
+
+    @field_validator("JWT_EXPIRES_IN")
+    @classmethod
+    def validate_jwt_expiration(cls, value: str) -> str:
+        if not re.fullmatch(r"[1-9][0-9]*([dhm])?", value.strip().lower()):
+            raise ValueError(
+                "JWT_EXPIRES_IN must be a positive integer with an optional d, h, or m suffix."
+            )
+        return value
 
     @property
     def database_url(self) -> str:
@@ -90,10 +107,16 @@ class Settings(BaseSettings):
             url = url.set(drivername="postgresql+psycopg2")
         else:
             if not self.DB_USER or not self.DB_NAME:
-                raise ValueError("Configura DATABASE_URL o DB_USER y DB_NAME en experiencia_back/.env.")
+                raise ValueError(
+                    "Configura DATABASE_URL o DB_USER y DB_NAME en experiencia_back/.env."
+                )
             url = URL.create(
-                "postgresql+psycopg2", username=self.DB_USER, password=self.DB_PASS,
-                host=self.DB_HOST, port=self.DB_PORT, database=self.DB_NAME,
+                "postgresql+psycopg2",
+                username=self.DB_USER,
+                password=self.DB_PASS,
+                host=self.DB_HOST,
+                port=self.DB_PORT,
+                database=self.DB_NAME,
             )
         return url.render_as_string(hide_password=False)
 
@@ -120,4 +143,5 @@ class Settings(BaseSettings):
             return 60 * 24
 
 
-settings = Settings()
+# pydantic-settings resolves this required value from the environment at runtime.
+settings = Settings()  # pyright: ignore[reportCallIssue]

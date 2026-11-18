@@ -1,0 +1,40 @@
+name: Task
+description: A unit of work traceable to a cycle, use case, user story, or requirement.
+labels: ["type:feature"]
+body:
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Why this is needed (1-3 lines).
+    validations:
+      required: true
+  - type: input
+    id: traceability
+    attributes:
+      label: Traceability
+      description: Iteration · use case · user story · requirements
+      placeholder: "I1 · CU-01 · HU-05 · RF-12"
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: What to do
+      value: |
+        - [ ]
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Observable and verifiable. Include the automated test that covers it.
+      value: |
+        - [ ]
+    validations:
+      required: true
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
