@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+from typing import Any
 from app.live.entity.audience_metric import AgeGroupEnum
 from app.live.entity.live_suggestion import SuggestionTypeEnum
 
@@ -12,6 +13,22 @@ class LiveSessionCreateDTO(BaseModel):
     """
 
     experience_id: str = Field(..., description="ID de la experiencia que inicia transmisión en vivo")
+    host_id: str | None = Field(default=None, description="ID del anfitrión de la sesión")
+
+
+class LiveSessionResponseDTO(BaseModel):
+    """
+    Contrato de respuesta al crear o consultar una sesión en vivo.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str = Field(..., description="ID único de la sesión en vivo")
+    experience_id: str = Field(..., description="ID de la experiencia vinculada")
+    host_id: str = Field(..., description="ID del anfitrión de la sesión")
+    status: str = Field(..., description="Estado de la sesión (INITIALIZED, ACTIVE, ENDED)")
+    started_at: datetime = Field(..., description="Fecha y hora de inicio")
+    ended_at: datetime | None = Field(default=None, description="Fecha y hora de cierre")
 
 
 class FramePayloadDTO(BaseModel):
@@ -20,8 +37,18 @@ class FramePayloadDTO(BaseModel):
     """
 
     session_id: str = Field(..., description="ID de la sesión en vivo activa")
-    image_base64: str = Field(..., description="Fotograma codificado en Base64 (descartado de RAM tras inferencia)")
-    timestamp_ms: int = Field(..., ge=0, description="Marca de tiempo del fotograma en milisegundos")
+    image_base64: str = Field(default="", description="Fotograma codificado en Base64 (descartado de RAM tras inferencia)")
+    timestamp_ms: int = Field(default=0, ge=0, description="Marca de tiempo del fotograma en milisegundos")
+
+    @model_validator(mode="before")
+    @classmethod
+    def resolve_fields(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "frame" in data and not data.get("image_base64"):
+                data["image_base64"] = data["frame"]
+            if "timestamp_ms" not in data or data.get("timestamp_ms") is None:
+                data["timestamp_ms"] = int(datetime.now().timestamp() * 1000)
+        return data
 
 
 class LiveMetricsDTO(BaseModel):
@@ -101,6 +128,7 @@ class ConsentDTO(BaseModel):
     """
 
     session_id: str = Field(..., description="ID de la sesión en vivo")
+    user_id: str | None = Field(default=None, description="ID del usuario asistente que otorga consentimiento")
     accepted: bool = Field(..., description="Confirmación de aceptación del asistente")
     consent_type: str = Field(
         default="GDPR_EPHEMERAL_VIDEO_ANALYSIS",
