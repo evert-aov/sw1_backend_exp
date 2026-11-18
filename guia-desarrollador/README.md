@@ -14,6 +14,7 @@ El backend de EXPERIENCIA usa módulos por dominio con controladores, DTO, servi
 | [07 — Directorios y flujos](07-MAPA-DE-DIRECTORIOS-Y-FLUJOS.md) | Dónde extender y cómo fluye una solicitud |
 | [08 — Roles y administración](08-ROLES-Y-ADMINISTRACION.md) | Permisos, propiedad, asignaciones y primera cuenta ADMIN |
 | [09 — Seed de prueba](09-SEED-DE-ROLES-Y-ESCENARIOS.md) | Cuentas ficticias, lugares propios, reservas, entradas y grupos |
+| [10 — Telemetría en vivo (HU-17)](10-TELEMETRIA-EN-VIVO-HU17.md) | Semáforo de energía, WebSocket cada 2.5 s y vinculación de monitores |
 
 Desde `experiencia_back/`, con Python 3.14.6 y PostgreSQL preparado:
 

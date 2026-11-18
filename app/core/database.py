@@ -74,6 +74,17 @@ def reset_database() -> dict[str, Any]:
         conn.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public;"))
     Base.metadata.create_all(bind=engine)
 
+    try:
+        from app.core.migrations import migration_config
+        from alembic import command
+
+        config, _ = migration_config()
+        with engine.begin() as conn:
+            config.attributes["connection"] = conn
+            command.stamp(config, "head")
+    except Exception:
+        pass
+
     return {
         "status": "success",
         "message": "Base de datos reiniciada y todas las tablas recreadas limpiamente en cascada.",

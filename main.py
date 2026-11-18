@@ -259,6 +259,10 @@ app.include_router(notification_router, prefix=settings.API_V1_STR)
 app.include_router(live_router, prefix=settings.API_V1_STR)
 app.include_router(report_router, prefix=settings.API_V1_STR)
 app.include_router(age_distribution_router, prefix=settings.API_V1_STR)
+# HU-17: consola de telemetría en vivo (import local para no alterar el bloque de imports compartido)
+from app.live.control.live_telemetry_controller import live_telemetry_router  # noqa: E402
+
+app.include_router(live_telemetry_router, prefix=settings.API_V1_STR)
 
 app.include_router(system_router, prefix=settings.API_V1_STR)
 
