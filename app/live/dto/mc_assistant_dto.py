@@ -24,6 +24,9 @@ class McDynamicDTO(BaseModel):
     )
     intensity: int = Field(..., ge=1, le=3, description="1 suave, 2 media, 3 reactivación fuerte")
     duration_minutes: int = Field(..., ge=0, description="Duración estimada en minutos")
+    category_names: list[str] = Field(
+        default_factory=list, description="Categorías de experiencia; vacía = dinámica general"
+    )
     title_es: str = Field(..., description="Título en español")
     title_en: str = Field(..., description="Título en inglés")
     instructions_es: str = Field(..., description="Instrucciones en español")
@@ -73,6 +76,14 @@ class PushDeviceRegisterDTO(BaseModel):
         default="android", description="Plataforma del dispositivo"
     )
     language: Literal["es", "en"] = Field(default="es", description="Idioma de las notificaciones")
+
+
+class PushDeviceRemoveDTO(BaseModel):
+    """Baja del token de Firebase cuando el monitor se desvincula (HU-18)."""
+
+    fcm_token: str = Field(
+        ..., min_length=20, max_length=512, description="Token de Firebase Cloud Messaging"
+    )
 
 
 class PushDeviceRegisteredDTO(BaseModel):

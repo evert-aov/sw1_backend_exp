@@ -4,6 +4,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
+from app.experience.entity.category import Category
 from app.experience.entity.experience import Experience
 from app.live.entity.live_session import LiveSession
 from app.live.entity.live_suggestion import LiveSuggestion
@@ -70,6 +71,25 @@ class McAssistantRepository:
             return None
         modality = row[0]
         return modality.value if hasattr(modality, "value") else str(modality)
+
+    def get_session_category_name(self, session_id: str) -> str | None:
+        """
+        Obtiene el nombre de la categoría de la experiencia transmitida en la sesión.
+
+        Args:
+            session_id (str): UUID de la sesión en vivo.
+
+        Returns:
+            str | None: Nombre de la categoría (por ejemplo `Gastronomía`) o None si no existe.
+        """
+        row = (
+            self.db.query(Category.name)
+            .join(Experience, Experience.category_id == Category.id)
+            .join(LiveSession, LiveSession.experience_id == Experience.id)
+            .filter(LiveSession.id == session_id)
+            .first()
+        )
+        return str(row[0]) if row else None
 
     def get_alert(self, alert_id: str) -> McAlert | None:
         """

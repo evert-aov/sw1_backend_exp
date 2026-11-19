@@ -14,6 +14,7 @@ from app.live.dto.mc_assistant_dto import (
     McDynamicDTO,
     PushDeviceRegisterDTO,
     PushDeviceRegisteredDTO,
+    PushDeviceRemoveDTO,
 )
 from app.live.service.live_monitor_pairing import decode_monitor_token, monitor_token_expiry
 from app.live.service.live_telemetry_access import (
@@ -277,4 +278,38 @@ async def register_monitor_push_device(
     actor = await asyncio.to_thread(_authorize, claims.session_id, token)
     return await service.register_push_device(
         actor.session_id, dto.fcm_token, dto.platform, dto.language, expires_at
+    )
+
+
+@mc_assistant_router.post(
+    "/monitor/push-device/remove",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Dejar de enviar alertas push al celular vinculado (HU-18)",
+    description="Solo acepta el token de monitor; elimina el dispositivo únicamente de su propia sesión.",
+)
+async def remove_monitor_push_device(
+    dto: PushDeviceRemoveDTO,
+    token: Annotated[str, Depends(get_current_token)],
+    service: Annotated[McAssistantService, Depends(get_mc_assistant_service)],
+) -> None:
+    """
+    Da de baja el token de Firebase del monitor al desvincularlo (HU-18).
+
+    Args:
+        dto (PushDeviceRemoveDTO): Token de Firebase a eliminar.
+        token (str): Token de monitor.
+        service (McAssistantService): Asistente MC del proceso.
+
+    Raises:
+        HTTPException (401): Si el token no es un token de monitor válido.
+    """
+    claims = decode_monitor_token(token)
+    if claims is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Requiere el token del monitor vinculado",
+        )
+    actor = await asyncio.to_thread(_authorize, claims.session_id, token)
+    await asyncio.to_thread(
+        service.store.remove_session_push_device, actor.session_id, dto.fcm_token
     )

@@ -204,6 +204,7 @@ class McAssistantStore:
                 McDynamicTypeEnum(d.dynamic_type).value,
                 getattr(d.modality, "value", str(d.modality)),
                 int(d.intensity),
+                tuple(d.category_names or ()),
             )
             for d in catalog
         ]
@@ -211,9 +212,10 @@ class McAssistantStore:
             options,
             repo.get_session_modality(session_id),
             attention,
-            exclude + repo.recent_dynamic_codes(session_id),
+            exclude + repo.recent_dynamic_codes(session_id, limit=8),
             self._config,
             self._rng,
+            session_category=repo.get_session_category_name(session_id),
         )
         return repo.get_dynamic(chosen.id) if chosen else None
 
@@ -444,6 +446,26 @@ class McAssistantStore:
         with self._session_factory() as db:
             devices = McAssistantRepository(db).list_push_devices(session_id, naive_utc(now))
             return [(str(d.fcm_token), str(d.language)) for d in devices]
+
+    def remove_session_push_device(self, session_id: str, fcm_token: str) -> bool:
+        """
+        Elimina el dispositivo push de una sesión cuando el monitor se desvincula.
+
+        Args:
+            session_id (str): UUID de la sesión autorizada.
+            fcm_token (str): Token de Firebase del dispositivo.
+
+        Returns:
+            bool: True si el dispositivo existía en esa sesión y se eliminó.
+        """
+        with self._session_factory() as db:
+            repo = McAssistantRepository(db)
+            device = repo.get_push_device_by_token(fcm_token)
+            if device is None or str(device.live_session_id) != session_id:
+                return False
+            db.delete(device)
+            db.commit()
+            return True
 
     def remove_push_tokens(self, tokens: list[str]) -> None:
         """

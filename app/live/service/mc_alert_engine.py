@@ -207,6 +207,7 @@ class DynamicOption:
     dynamic_type: str
     modality: str
     intensity: int
+    categories: tuple[str, ...] = ()  # Vacío = dinámica general para cualquier categoría
 
 
 def modality_matches(dynamic_modality: str, session_modality: str | None) -> bool:
@@ -232,13 +233,16 @@ def choose_dynamic(
     recent_codes: Sequence[str],
     config: McAssistantConfig,
     rng: random.Random | None = None,
+    session_category: str | None = None,
 ) -> DynamicOption | None:
     """
     Elige la dinámica a proponer (HU-19).
 
-    Con atención severa (por debajo de `severe_attention`) prioriza pausas y reactivaciones de
-    intensidad alta; si no, prioriza preguntas e interacciones suaves. Evita repetir las dinámicas
-    usadas recientemente en la sesión mientras haya alternativas.
+    Solo considera dinámicas generales o de la categoría del evento (una cata no recibe dinámicas
+    de un concierto) y, entre las aplicables, prefiere las específicas de esa categoría. Con atención
+    severa (por debajo de `severe_attention`) prioriza pausas y reactivaciones de intensidad alta;
+    si no, prioriza preguntas e interacciones suaves. Evita repetir las dinámicas usadas
+    recientemente en la sesión mientras haya alternativas.
 
     Args:
         catalog (Sequence[DynamicOption]): Dinámicas activas del catálogo.
@@ -247,12 +251,18 @@ def choose_dynamic(
         recent_codes (Sequence[str]): Códigos ya propuestos en la sesión, del más antiguo al más reciente.
         config (McAssistantConfig): Parámetros del asistente.
         rng (random.Random | None): Generador inyectable para resultados repetibles.
+        session_category (str | None): Nombre de la categoría de la experiencia.
 
     Returns:
         DynamicOption | None: Dinámica elegida, o None si el catálogo está vacío.
     """
     rng = rng or random.Random()
-    candidates = [d for d in catalog if modality_matches(d.modality, session_modality)]
+    candidates = [
+        d
+        for d in catalog
+        if modality_matches(d.modality, session_modality)
+        and (not d.categories or session_category in d.categories)
+    ]
     if not candidates:
         return None
 
@@ -263,7 +273,8 @@ def choose_dynamic(
     else:
         preferred = [d for d in fresh if d.dynamic_type == "AUDIENCE_QUESTION" or d.intensity == 1]
     pool = preferred or fresh
-    return rng.choice(sorted(pool, key=lambda d: d.code))
+    specific = [d for d in pool if d.categories]
+    return rng.choice(sorted(specific or pool, key=lambda d: d.code))
 
 
 def break_window_end(break_ends_at: datetime | None, config: McAssistantConfig) -> datetime | None:

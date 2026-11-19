@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime, timezone
 
-from sqlalchemy import UUID, Boolean, DateTime, Enum, Integer, String, Text
+from sqlalchemy import JSON, UUID, Boolean, DateTime, Enum, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base, generate_uuid
@@ -43,6 +43,8 @@ class McDynamic(Base):
     # Intensidad: 1 suave · 2 media · 3 reactivación fuerte
     intensity: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     duration_minutes: Mapped[int] = mapped_column(Integer, default=2, nullable=False)
+    # Nombres de las categorías de experiencia a las que aplica; lista vacía = dinámica general
+    category_names: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
 
     title_es: Mapped[str] = mapped_column(String(120), nullable=False)
     title_en: Mapped[str] = mapped_column(String(120), nullable=False)

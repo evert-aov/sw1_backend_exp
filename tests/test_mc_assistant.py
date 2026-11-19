@@ -30,7 +30,7 @@ from app.live.service.mc_alert_engine import (
     modality_matches,
 )
 from app.live.service.mc_assistant_service import McAssistantService, SessionContext
-from app.live.service.mc_dynamics_seed import DEFAULT_MC_DYNAMICS
+from app.live.service.mc_dynamics_seed import CATEGORY_MC_DYNAMICS, DEFAULT_MC_DYNAMICS
 from app.live.service.push_notification_service import PushMessage, PushNotificationService
 
 SESSION_ID = "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b"
@@ -158,6 +158,80 @@ def test_recent_dynamics_are_not_repeated_while_alternatives_exist():
     recent = [d.code for d in CATALOG if d.dynamic_type == "AUDIENCE_QUESTION"][:-1]
     chosen = choose_dynamic(CATALOG, "IN_PERSON", 0.45, recent, CONFIG, random.Random(1))
     assert chosen is not None and chosen.code not in recent
+
+
+FULL_CATALOG = [
+    DynamicOption(
+        f"c{i}",
+        d["code"],
+        d["dynamic_type"].value,
+        d["modality"].value,
+        d["intensity"],
+        tuple(d.get("category_names", [])),
+    )
+    for i, d in enumerate(DEFAULT_MC_DYNAMICS + CATEGORY_MC_DYNAMICS)
+]
+
+
+def test_category_catalog_is_valid_and_bilingual():
+    codes = [d["code"] for d in DEFAULT_MC_DYNAMICS + CATEGORY_MC_DYNAMICS]
+    assert len(codes) == len(set(codes))
+    categories = {c for d in CATEGORY_MC_DYNAMICS for c in d["category_names"]}
+    assert categories == {
+        "Gastronomía",
+        "Arte y Pintura",
+        "Música y Conciertos",
+        "Talleres y Educación",
+        "Networking y Negocios",
+        "Bienestar y Outdoors",
+    }
+    for d in CATEGORY_MC_DYNAMICS:
+        assert d["title_es"] and d["title_en"] and d["instructions_es"] and d["instructions_en"]
+
+
+def test_event_category_never_gets_dynamics_of_another_category():
+    for seed in range(40):
+        chosen = choose_dynamic(
+            FULL_CATALOG,
+            "IN_PERSON",
+            0.45,
+            [],
+            CONFIG,
+            random.Random(seed),
+            session_category="Gastronomía",
+        )
+        assert chosen is not None
+        assert not chosen.categories or chosen.categories == ("Gastronomía",)
+
+
+def test_category_specific_dynamics_are_preferred_until_used():
+    recent: list[str] = []
+    chosen_codes = []
+    for seed in range(6):
+        chosen = choose_dynamic(
+            FULL_CATALOG,
+            "IN_PERSON",
+            0.45,
+            recent,
+            CONFIG,
+            random.Random(seed),
+            session_category="Música y Conciertos",
+        )
+        assert chosen is not None
+        chosen_codes.append(chosen.code)
+        recent.append(chosen.code)
+    music = [c for c in chosen_codes if c.startswith("MUSIC_")]
+    assert music and chosen_codes[0].startswith("MUSIC_")
+    assert len(set(chosen_codes)) == len(
+        chosen_codes
+    )  # sin repeticiones mientras haya alternativas
+
+
+def test_unknown_category_uses_general_dynamics():
+    chosen = choose_dynamic(
+        FULL_CATALOG, "IN_PERSON", 0.45, [], CONFIG, random.Random(1), session_category=None
+    )
+    assert chosen is not None and chosen.categories == ()
 
 
 def test_empty_catalog_returns_none():
@@ -598,3 +672,40 @@ def test_alembic_history_has_single_head():
     script = ScriptDirectory.from_config(Config(str(BACKEND_ROOT / "alembic.ini")))
     assert len(script.get_heads()) == 1
     assert script.get_revision("20261119_01").down_revision == "20261025_05"
+
+
+def test_remove_push_device_only_with_monitor_token():
+    from app.live.control import mc_assistant_controller as controller
+    from app.live.service.live_telemetry_access import SessionActor
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    removed: list[tuple[str, str]] = []
+    fake_service = SimpleNamespace(
+        store=SimpleNamespace(
+            remove_session_push_device=lambda sid, tok: removed.append((sid, tok)) or True
+        )
+    )
+    app = FastAPI()
+    app.include_router(controller.mc_assistant_router, prefix="/api/live")
+    app.dependency_overrides[controller.get_mc_assistant_service] = lambda: fake_service
+    client = TestClient(app)
+    body = {"fcm_token": "f" * 30}
+
+    jwt_like = "no-es-token-de-monitor"
+    response = client.post(
+        "/api/live/mc/monitor/push-device/remove",
+        json=body,
+        headers={"Authorization": f"Bearer {jwt_like}"},
+    )
+    assert response.status_code == 401
+
+    monitor, _ = create_monitor_token(SESSION_ID, "host-1")
+    with patch.object(controller, "_authorize", return_value=SessionActor(SESSION_ID, True)):
+        response = client.post(
+            "/api/live/mc/monitor/push-device/remove",
+            json=body,
+            headers={"Authorization": f"Bearer {monitor}"},
+        )
+    assert response.status_code == 204
+    assert removed == [(SESSION_ID, "f" * 30)]

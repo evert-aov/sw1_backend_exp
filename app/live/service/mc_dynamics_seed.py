@@ -1,6 +1,8 @@
 """
 Seed del catálogo de dinámicas del Asistente de Maestro de Ceremonias (CU-11 / HU-19).
 
+Incluye dinámicas generales (sin categoría) y dinámicas específicas por categoría de experiencia.
+
 Las dinámicas viven en la tabla `mc_dynamics`; este módulo solo define el conjunto inicial y lo
 inserta o actualiza de forma idempotente por `code`, sin borrar dinámicas creadas por otros medios.
 """
@@ -145,6 +147,259 @@ DEFAULT_MC_DYNAMICS: list[dict[str, Any]] = [
 ]
 
 
+# Nombres de las categorías sembradas por app/core/seeder.py (CU-04)
+GASTRONOMY = "Gastronomía"
+ART = "Arte y Pintura"
+MUSIC = "Música y Conciertos"
+WORKSHOPS = "Talleres y Educación"
+NETWORKING = "Networking y Negocios"
+WELLNESS = "Bienestar y Outdoors"
+
+# Dinámicas específicas por tipo de experiencia: se prefieren sobre las generales (HU-19)
+CATEGORY_MC_DYNAMICS: list[dict[str, Any]] = [
+    {
+        "code": "GASTRO_GUESS_THE_AROMA",
+        "category_names": [GASTRONOMY],
+        "dynamic_type": Q,
+        "modality": IN_PERSON,
+        "intensity": 2,
+        "duration_minutes": 2,
+        "title_es": "Adivina el aroma",
+        "title_en": "Guess the aroma",
+        "instructions_es": "Pide que el público adivine una nota de aroma o sabor del producto que presentas. Revela la respuesta y explica de dónde viene.",
+        "instructions_en": "Ask the audience to guess an aroma or flavor note of the product you are presenting. Reveal the answer and explain where it comes from.",
+    },
+    {
+        "code": "GASTRO_SWEET_SOUR_BITTER",
+        "category_names": [GASTRONOMY],
+        "dynamic_type": Q,
+        "modality": ANY,
+        "intensity": 1,
+        "duration_minutes": 1,
+        "title_es": "¿Dulce, ácido o amargo?",
+        "title_en": "Sweet, sour or bitter?",
+        "instructions_es": "Pide que voten qué sabor domina en la última preparación. Comenta por qué se percibe así.",
+        "instructions_en": "Ask people to vote which flavor dominates the last preparation. Explain why it is perceived that way.",
+    },
+    {
+        "code": "GASTRO_GUIDED_TASTING",
+        "category_names": [GASTRONOMY],
+        "dynamic_type": ACTIVE,
+        "modality": IN_PERSON,
+        "intensity": 3,
+        "duration_minutes": 3,
+        "title_es": "Degustación guiada en grupo",
+        "title_en": "Guided group tasting",
+        "instructions_es": "Invita a todos a probar juntos una muestra siguiendo tus pasos: oler, probar y describir en una palabra.",
+        "instructions_en": "Invite everyone to taste a sample together following your steps: smell, taste and describe it in one word.",
+    },
+    {
+        "code": "GASTRO_TASTING_BREAK",
+        "category_names": [GASTRONOMY],
+        "dynamic_type": SHORT,
+        "modality": IN_PERSON,
+        "intensity": 2,
+        "duration_minutes": 3,
+        "title_es": "Pausa para probar y conversar",
+        "title_en": "Tasting and chatting break",
+        "instructions_es": "Da 3 minutos para probar lo preparado y conversar entre mesas. Retoma preguntando qué les sorprendió.",
+        "instructions_en": "Give 3 minutes to taste what was prepared and chat between tables. Resume by asking what surprised them.",
+    },
+    {
+        "code": "MUSIC_CROWD_PICKS_SONG",
+        "category_names": [MUSIC],
+        "dynamic_type": Q,
+        "modality": ANY,
+        "intensity": 2,
+        "duration_minutes": 1,
+        "title_es": "El público elige la canción",
+        "title_en": "The crowd picks the song",
+        "instructions_es": "Ofrece dos canciones y deja que el público elija con aplausos (o en el chat si es virtual).",
+        "instructions_en": "Offer two songs and let the crowd choose with applause (or in the chat if virtual).",
+    },
+    {
+        "code": "MUSIC_CLAP_THE_BEAT",
+        "category_names": [MUSIC],
+        "dynamic_type": ACTIVE,
+        "modality": IN_PERSON,
+        "intensity": 2,
+        "duration_minutes": 1,
+        "title_es": "Palmas al ritmo",
+        "title_en": "Clap to the beat",
+        "instructions_es": "Invita al público a marcar el ritmo con palmas durante el próximo estribillo.",
+        "instructions_en": "Invite the audience to clap along to the beat during the next chorus.",
+    },
+    {
+        "code": "MUSIC_SING_ALONG",
+        "category_names": [MUSIC],
+        "dynamic_type": ACTIVE,
+        "modality": IN_PERSON,
+        "intensity": 3,
+        "duration_minutes": 2,
+        "title_es": "Coro del público",
+        "title_en": "Audience sing-along",
+        "instructions_es": "Enseña una frase corta del coro y pide que la canten contigo en la siguiente vuelta.",
+        "instructions_en": "Teach a short line of the chorus and ask everyone to sing it with you next time.",
+    },
+    {
+        "code": "MUSIC_DEDICATION",
+        "category_names": [MUSIC],
+        "dynamic_type": Q,
+        "modality": ANY,
+        "intensity": 1,
+        "duration_minutes": 1,
+        "title_es": "Dedica la siguiente canción",
+        "title_en": "Dedicate the next song",
+        "instructions_es": "Pregunta si alguien quiere dedicar la siguiente canción y menciona la dedicatoria antes de tocar.",
+        "instructions_en": "Ask whether someone wants to dedicate the next song and read the dedication before playing.",
+    },
+    {
+        "code": "ART_WHAT_DO_YOU_SEE",
+        "category_names": [ART],
+        "dynamic_type": Q,
+        "modality": ANY,
+        "intensity": 1,
+        "duration_minutes": 1,
+        "title_es": "¿Qué te transmite esta obra?",
+        "title_en": "What does this piece convey?",
+        "instructions_es": "Muestra una obra o un avance y pide una palabra que describa lo que transmite.",
+        "instructions_en": "Show a piece or a work in progress and ask for one word describing what it conveys.",
+    },
+    {
+        "code": "ART_GALLERY_WALK",
+        "category_names": [ART],
+        "dynamic_type": ACTIVE,
+        "modality": IN_PERSON,
+        "intensity": 2,
+        "duration_minutes": 2,
+        "title_es": "Recorrido por los lienzos",
+        "title_en": "Canvas gallery walk",
+        "instructions_es": "Pide que todos se levanten y observen el trabajo de otra persona durante un minuto.",
+        "instructions_en": "Ask everyone to stand up and look at someone else's work for one minute.",
+    },
+    {
+        "code": "ART_BLIND_SKETCH",
+        "category_names": [ART],
+        "dynamic_type": ACTIVE,
+        "modality": ANY,
+        "intensity": 3,
+        "duration_minutes": 2,
+        "title_es": "Trazo a ciegas de 60 segundos",
+        "title_en": "60-second blind sketch",
+        "instructions_es": "Propón dibujar algo con los ojos cerrados durante un minuto y mostrar el resultado al grupo.",
+        "instructions_en": "Ask everyone to draw something with their eyes closed for one minute and show the result.",
+    },
+    {
+        "code": "EDU_QUICK_REVIEW",
+        "category_names": [WORKSHOPS],
+        "dynamic_type": Q,
+        "modality": ANY,
+        "intensity": 1,
+        "duration_minutes": 1,
+        "title_es": "Pregunta de repaso",
+        "title_en": "Quick review question",
+        "instructions_es": "Haz una pregunta rápida sobre lo explicado y reconoce la primera respuesta correcta.",
+        "instructions_en": "Ask a quick question about what you explained and acknowledge the first correct answer.",
+    },
+    {
+        "code": "EDU_ONE_LINE_DOUBT",
+        "category_names": [WORKSHOPS],
+        "dynamic_type": Q,
+        "modality": ANY,
+        "intensity": 2,
+        "duration_minutes": 2,
+        "title_es": "Tu duda en una frase",
+        "title_en": "Your question in one line",
+        "instructions_es": "Pide que cada persona escriba su principal duda en una frase y responde dos al azar.",
+        "instructions_en": "Ask everyone to write their main question in one line and answer two at random.",
+    },
+    {
+        "code": "EDU_PAIR_CHALLENGE",
+        "category_names": [WORKSHOPS],
+        "dynamic_type": ACTIVE,
+        "modality": ANY,
+        "intensity": 3,
+        "duration_minutes": 3,
+        "title_es": "Reto práctico en parejas",
+        "title_en": "Hands-on pair challenge",
+        "instructions_es": "Propón un ejercicio de 3 minutos en parejas aplicando el último concepto y comenta una solución.",
+        "instructions_en": "Set a 3-minute pair exercise applying the last concept and review one solution.",
+    },
+    {
+        "code": "NET_LIGHTNING_INTRO",
+        "category_names": [NETWORKING],
+        "dynamic_type": Q,
+        "modality": ANY,
+        "intensity": 2,
+        "duration_minutes": 2,
+        "title_es": "Presentación relámpago",
+        "title_en": "Lightning introductions",
+        "instructions_es": "Pide a tres personas que se presenten en 15 segundos: nombre, empresa y qué buscan hoy.",
+        "instructions_en": "Ask three people to introduce themselves in 15 seconds: name, company and what they are looking for.",
+    },
+    {
+        "code": "NET_CARD_SWAP",
+        "category_names": [NETWORKING],
+        "dynamic_type": ACTIVE,
+        "modality": IN_PERSON,
+        "intensity": 3,
+        "duration_minutes": 3,
+        "title_es": "Intercambio de contactos",
+        "title_en": "Contact swap",
+        "instructions_es": "Da 2 minutos para que cada persona intercambie contacto con alguien que no conoce.",
+        "instructions_en": "Give 2 minutes for everyone to exchange contacts with someone they do not know.",
+    },
+    {
+        "code": "NET_CHALLENGE_POLL",
+        "category_names": [NETWORKING],
+        "dynamic_type": Q,
+        "modality": ANY,
+        "intensity": 1,
+        "duration_minutes": 1,
+        "title_es": "Encuesta de desafíos",
+        "title_en": "Business challenge poll",
+        "instructions_es": "Pregunta cuál es el mayor desafío de su negocio entre tres opciones y comenta el resultado.",
+        "instructions_en": "Ask which is their biggest business challenge among three options and comment on the result.",
+    },
+    {
+        "code": "WELL_CHECK_IN",
+        "category_names": [WELLNESS],
+        "dynamic_type": Q,
+        "modality": ANY,
+        "intensity": 1,
+        "duration_minutes": 1,
+        "title_es": "¿Cómo llegas ahora?",
+        "title_en": "How are you arriving now?",
+        "instructions_es": "Pide que cada persona describa con una palabra cómo se siente en este momento.",
+        "instructions_en": "Ask everyone to describe in one word how they feel right now.",
+    },
+    {
+        "code": "WELL_MINDFUL_STRETCH",
+        "category_names": [WELLNESS],
+        "dynamic_type": ACTIVE,
+        "modality": ANY,
+        "intensity": 2,
+        "duration_minutes": 2,
+        "title_es": "Estiramiento consciente",
+        "title_en": "Mindful stretch",
+        "instructions_es": "Guía un estiramiento lento de cuello y hombros coordinado con la respiración.",
+        "instructions_en": "Lead a slow neck and shoulder stretch coordinated with breathing.",
+    },
+    {
+        "code": "WELL_OUTDOOR_HYDRATION",
+        "category_names": [WELLNESS],
+        "dynamic_type": SHORT,
+        "modality": IN_PERSON,
+        "intensity": 2,
+        "duration_minutes": 3,
+        "title_es": "Pausa de hidratación al aire libre",
+        "title_en": "Outdoor hydration break",
+        "instructions_es": "Anuncia una pausa de 3 minutos para hidratarse y respirar aire fresco. Indica la hora de regreso.",
+        "instructions_en": "Announce a 3-minute break to hydrate and get some fresh air. Give the time to come back.",
+    },
+]
+
+
 def seed_mc_dynamics(db: Session) -> list[dict[str, str]]:
     """
     Inserta o actualiza el catálogo inicial de dinámicas del Asistente MC de forma idempotente.
@@ -156,12 +411,12 @@ def seed_mc_dynamics(db: Session) -> list[dict[str, str]]:
         list[dict[str, str]]: Código y título en español de cada dinámica del catálogo inicial.
     """
     seeded: list[dict[str, str]] = []
-    for data in DEFAULT_MC_DYNAMICS:
+    for data in DEFAULT_MC_DYNAMICS + CATEGORY_MC_DYNAMICS:
         dynamic = db.query(McDynamic).filter(McDynamic.code == data["code"]).first()
         if dynamic is None:
             dynamic = McDynamic(code=data["code"], is_active=True)
             db.add(dynamic)
-        for field, value in data.items():
+        for field, value in {"category_names": [], **data}.items():
             setattr(dynamic, field, value)
         seeded.append({"code": data["code"], "title": data["title_es"]})
     db.commit()

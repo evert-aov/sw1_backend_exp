@@ -32,6 +32,8 @@ def upgrade() -> None:
         ),
         sa.Column("intensity", sa.Integer(), nullable=False),
         sa.Column("duration_minutes", sa.Integer(), nullable=False),
+        # Categorías de experiencia a las que aplica; lista vacía = dinámica general
+        sa.Column("category_names", sa.JSON(), nullable=False),
         sa.Column("title_es", sa.String(120), nullable=False),
         sa.Column("title_en", sa.String(120), nullable=False),
         sa.Column("instructions_es", sa.Text(), nullable=False),
