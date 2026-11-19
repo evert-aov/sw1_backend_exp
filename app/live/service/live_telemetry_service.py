@@ -92,12 +92,14 @@ class MetricSample:
     dominant_age_group: AgeGroupEnum | None
 
     @classmethod
-    def from_metric(cls, metric: Any) -> "MetricSample":
+    def from_metric(cls, metric: Any, recorded_at: datetime | None = None) -> "MetricSample":
         """
         Construye una muestra desde un `LiveMetricsDTO` o una entidad `AudienceMetric`.
 
         Args:
             metric (Any): Objeto con los atributos de una métrica agregada de audiencia.
+            recorded_at (datetime | None): Instante UTC ya normalizado (por ejemplo leído de la BD);
+                si es None se usa `metric.recorded_at`.
 
         Returns:
             MetricSample: Muestra normalizada con fecha en UTC.
@@ -106,7 +108,7 @@ class MetricSample:
         if age is not None and not isinstance(age, AgeGroupEnum):
             age = AgeGroupEnum(age)
         return cls(
-            recorded_at=as_utc(metric.recorded_at),
+            recorded_at=as_utc(recorded_at or metric.recorded_at),
             attention_score=float(metric.attention_score or 0.0),
             joy_score=float(metric.joy_score or 0.0),
             detected_faces_count=int(metric.detected_faces_count or 0),
@@ -144,10 +146,9 @@ def database_metrics_source(session_id: str, after: datetime, limit: int) -> lis
     Returns:
         list[MetricSample]: Métricas nuevas de la sesión en orden cronológico.
     """
-    naive_after = as_utc(after).replace(tzinfo=None)
     with SessionLocal() as db:
-        rows = LiveTelemetryRepository(db).get_metrics_after(session_id, naive_after, limit)
-        return [MetricSample.from_metric(row) for row in rows]
+        rows = LiveTelemetryRepository(db).get_metrics_after(session_id, as_utc(after), limit)
+        return [MetricSample.from_metric(row, recorded_at=recorded) for row, recorded in rows]
 
 
 class SessionTelemetryState:

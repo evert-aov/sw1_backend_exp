@@ -145,7 +145,7 @@ def insert_metric(db: Session, session_id: str, recorded_at: datetime, values: d
     Args:
         db (Session): Sesión de base de datos.
         session_id (str): UUID de la sesión en vivo.
-        recorded_at (datetime): Instante UTC sin zona horaria de la métrica.
+        recorded_at (datetime): Instante UTC con zona horaria de la métrica.
         values (dict): Valores generados por `build_sample`.
     """
     db.add(AudienceMetric(live_session_id=session_id, recorded_at=recorded_at, **values))
@@ -194,7 +194,8 @@ def main() -> int:
         seed_mc_dynamics(db)
         session = resolve_live_session(db, args.host_email, args.experience_id)
         session_id = str(session.id)
-        now = utc_naive_now()
+        # Fecha UTC con zona: PostgreSQL la guarda igual que las métricas reales de la cámara
+        now = datetime.now(timezone.utc)
         history = max(0, args.history)
         for index in range(history):
             offset = (history - index) * SAMPLE_INTERVAL_SECONDS
@@ -219,7 +220,7 @@ def main() -> int:
         try:
             while args.duration <= 0 or time.monotonic() - started < args.duration:
                 values = build_sample(elapsed_series, rng, args.scenario)
-                insert_metric(db, session_id, utc_naive_now(), values)
+                insert_metric(db, session_id, datetime.now(timezone.utc), values)
                 print(
                     f"  atención={values['attention_score']:.2f} alegría={values['joy_score']:.2f} rostros={values['detected_faces_count']}"
                 )
