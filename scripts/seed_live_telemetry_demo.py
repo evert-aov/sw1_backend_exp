@@ -10,6 +10,7 @@ Ejemplos:
     venv/Scripts/python scripts/seed_live_telemetry_demo.py
     venv/Scripts/python scripts/seed_live_telemetry_demo.py --stream --duration 300
     venv/Scripts/python scripts/seed_live_telemetry_demo.py --host-email evert.rodriguez@experiencia.com --stream
+    venv/Scripts/python scripts/seed_live_telemetry_demo.py --scenario caida --stream   # HU-18: atención baja sostenida
 """
 
 from __future__ import annotations
@@ -24,13 +25,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from sqlalchemy.orm import Session  # noqa: E402
-
 from app.auth.entity.user import User  # noqa: E402
 from app.core.database import SessionLocal, load_all_entities  # noqa: E402
 from app.experience.entity.experience import Experience  # noqa: E402
 from app.live.entity.audience_metric import AgeGroupEnum, AudienceMetric  # noqa: E402
 from app.live.entity.live_session import LiveSession, LiveSessionStatusEnum  # noqa: E402
+from app.live.service.mc_dynamics_seed import seed_mc_dynamics  # noqa: E402
+from sqlalchemy.orm import Session  # noqa: E402
 
 DEFAULT_HOST_EMAIL = "host@experiencia.com"
 SAMPLE_INTERVAL_SECONDS = 2.5
@@ -49,21 +50,29 @@ def utc_naive_now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-def build_sample(elapsed_seconds: float, rng: random.Random) -> dict[str, float | int | AgeGroupEnum]:
+def build_sample(
+    elapsed_seconds: float, rng: random.Random, scenario: str = "ciclo"
+) -> dict[str, float | int | AgeGroupEnum]:
     """
     Genera una métrica agregada plausible en un instante del ciclo de demostración.
 
-    La atención sigue una onda lenta que recorre los tres colores del semáforo, con ruido leve.
+    Escenario `ciclo`: la atención sigue una onda lenta que recorre los tres colores del semáforo.
+    Escenario `caida`: la atención se mantiene baja (cerca de 0.28) para disparar la alerta del
+    Asistente MC (HU-18), con ruido leve y repuntes breves que no deben cortar la racha.
 
     Args:
         elapsed_seconds (float): Segundos transcurridos desde el inicio de la serie.
         rng (random.Random): Generador pseudoaleatorio con semilla fija para resultados repetibles.
+        scenario (str): `ciclo` o `caida`.
 
     Returns:
         dict: Valores de atención, alegría, neutralidad, desatención, rostros y rango etario.
     """
     phase = 2 * math.pi * (elapsed_seconds % ENERGY_CYCLE_SECONDS) / ENERGY_CYCLE_SECONDS
-    attention = 0.58 + 0.32 * math.cos(phase) + rng.uniform(-0.04, 0.04)
+    if scenario == "caida":
+        attention = 0.28 + 0.05 * math.sin(phase * 3) + rng.uniform(-0.04, 0.04)
+    else:
+        attention = 0.58 + 0.32 * math.cos(phase) + rng.uniform(-0.04, 0.04)
     attention = max(0.05, min(0.98, attention))
     joy = max(0.0, min(1.0, attention * 0.85 + rng.uniform(-0.05, 0.05)))
     inattention = max(0.0, min(1.0, 1.0 - attention))
@@ -103,11 +112,16 @@ def resolve_live_session(db: Session, host_email: str, experience_id: str | None
         query = query.filter(Experience.id == experience_id)
     experience = query.order_by(Experience.event_date.asc()).first()
     if experience is None:
-        raise SystemExit(f"{host_email} no tiene experiencias publicadas para iniciar una sesión en vivo.")
+        raise SystemExit(
+            f"{host_email} no tiene experiencias publicadas para iniciar una sesión en vivo."
+        )
 
     session = (
         db.query(LiveSession)
-        .filter(LiveSession.experience_id == experience.id, LiveSession.status == LiveSessionStatusEnum.ACTIVE)
+        .filter(
+            LiveSession.experience_id == experience.id,
+            LiveSession.status == LiveSessionStatusEnum.ACTIVE,
+        )
         .first()
     )
     if session is None:
@@ -145,25 +159,51 @@ def main() -> int:
     Returns:
         int: Código de salida del proceso (0 si terminó correctamente).
     """
-    parser = argparse.ArgumentParser(description="Seed de demostración de la consola en vivo (HU-17)")
-    parser.add_argument("--host-email", default=DEFAULT_HOST_EMAIL, help="Anfitrión dueño de la experiencia")
-    parser.add_argument("--experience-id", default=None, help="Experiencia concreta del anfitrión (opcional)")
-    parser.add_argument("--history", type=int, default=24, help="Métricas previas a insertar (24 = 60 s)")
-    parser.add_argument("--stream", action="store_true", help="Seguir insertando una métrica cada 2.5 s")
-    parser.add_argument("--duration", type=float, default=0, help="Segundos de --stream; 0 = hasta Ctrl+C")
-    parser.add_argument("--seed", type=int, default=17, help="Semilla del generador para series repetibles")
+    parser = argparse.ArgumentParser(
+        description="Seed de demostración de la consola en vivo (HU-17)"
+    )
+    parser.add_argument(
+        "--host-email", default=DEFAULT_HOST_EMAIL, help="Anfitrión dueño de la experiencia"
+    )
+    parser.add_argument(
+        "--experience-id", default=None, help="Experiencia concreta del anfitrión (opcional)"
+    )
+    parser.add_argument(
+        "--history", type=int, default=24, help="Métricas previas a insertar (24 = 60 s)"
+    )
+    parser.add_argument(
+        "--stream", action="store_true", help="Seguir insertando una métrica cada 2.5 s"
+    )
+    parser.add_argument(
+        "--duration", type=float, default=0, help="Segundos de --stream; 0 = hasta Ctrl+C"
+    )
+    parser.add_argument(
+        "--seed", type=int, default=17, help="Semilla del generador para series repetibles"
+    )
+    parser.add_argument(
+        "--scenario",
+        choices=("ciclo", "caida"),
+        default="ciclo",
+        help="ciclo: recorre los tres colores; caida: atención baja sostenida para la alerta MC (HU-18)",
+    )
     args = parser.parse_args()
 
     load_all_entities()
     rng = random.Random(args.seed)
     with SessionLocal() as db:
+        seed_mc_dynamics(db)
         session = resolve_live_session(db, args.host_email, args.experience_id)
         session_id = str(session.id)
         now = utc_naive_now()
         history = max(0, args.history)
         for index in range(history):
             offset = (history - index) * SAMPLE_INTERVAL_SECONDS
-            insert_metric(db, session_id, now - timedelta(seconds=offset), build_sample(index * SAMPLE_INTERVAL_SECONDS, rng))
+            insert_metric(
+                db,
+                session_id,
+                now - timedelta(seconds=offset),
+                build_sample(index * SAMPLE_INTERVAL_SECONDS, rng, args.scenario),
+            )
 
         print(f"[Telemetría] Sesión en vivo: {session_id}")
         print(f"[Telemetría] Métricas históricas insertadas: {history}")
@@ -178,9 +218,11 @@ def main() -> int:
         elapsed_series = history * SAMPLE_INTERVAL_SECONDS
         try:
             while args.duration <= 0 or time.monotonic() - started < args.duration:
-                values = build_sample(elapsed_series, rng)
+                values = build_sample(elapsed_series, rng, args.scenario)
                 insert_metric(db, session_id, utc_naive_now(), values)
-                print(f"  atención={values['attention_score']:.2f} alegría={values['joy_score']:.2f} rostros={values['detected_faces_count']}")
+                print(
+                    f"  atención={values['attention_score']:.2f} alegría={values['joy_score']:.2f} rostros={values['detected_faces_count']}"
+                )
                 elapsed_series += SAMPLE_INTERVAL_SECONDS
                 time.sleep(SAMPLE_INTERVAL_SECONDS)
         except KeyboardInterrupt:

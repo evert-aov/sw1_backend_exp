@@ -5,7 +5,16 @@ import json
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
 from sqlalchemy.orm import Session
 
 from app.auth.entity.user import User
@@ -37,13 +46,13 @@ from app.live.service.live_telemetry_service import LiveTelemetryHub, get_live_t
 logger = logging.getLogger(__name__)
 
 live_telemetry_router = APIRouter(
-    prefix="/live/telemetry",
+    prefix="/live",
     tags=["Live Telemetry Console (CU-09 / HU-17)"],
 )
 
 
 @live_telemetry_router.get(
-    "/sessions/{session_id}",
+    "/telemetry/sessions/{session_id}",
     response_model=LiveTelemetrySnapshotDTO,
     status_code=status.HTTP_200_OK,
     summary="Consultar la telemetría agregada vigente de una sesión en vivo (HU-17)",
@@ -79,14 +88,16 @@ async def get_live_telemetry(
         HTTPException (422): Si el ID no es un UUID válido.
     """
     try:
-        canonical_id = await asyncio.to_thread(authorize_console_viewer, db, session_id, current_user)
+        canonical_id = await asyncio.to_thread(
+            authorize_console_viewer, db, session_id, current_user
+        )
     except TelemetryAccessError as exc:
         raise exc.to_http_exception() from exc
     return await hub.get_snapshot(canonical_id)
 
 
 @live_telemetry_router.post(
-    "/sessions/{session_id}/monitor-code",
+    "/telemetry/sessions/{session_id}/monitor-code",
     response_model=MonitorCodeDTO,
     status_code=status.HTTP_201_CREATED,
     summary="Generar un código para vincular una tablet o celular como monitor (HU-17)",
@@ -119,16 +130,22 @@ async def create_monitor_code(
         HTTPException (401/403/404/422): Mismas reglas de acceso que la consola.
     """
     try:
-        canonical_id = await asyncio.to_thread(authorize_console_viewer, db, session_id, current_user)
+        canonical_id = await asyncio.to_thread(
+            authorize_console_viewer, db, session_id, current_user
+        )
     except TelemetryAccessError as exc:
         raise exc.to_http_exception() from exc
     live_session = LiveTelemetryRepository(db).get_session(canonical_id)
+    if live_session is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Sesión en vivo no encontrada"
+        )
     code, ttl = pairing.issue_code(canonical_id, str(live_session.host_id))
     return MonitorCodeDTO(code=code, session_id=canonical_id, expires_in_seconds=ttl)
 
 
 @live_telemetry_router.post(
-    "/monitor/redeem",
+    "/telemetry/monitor/redeem",
     response_model=MonitorTokenDTO,
     status_code=status.HTTP_200_OK,
     summary="Canjear un código de monitor por un token de solo lectura (HU-17)",
@@ -164,19 +181,26 @@ def redeem_monitor_code(
     try:
         claims = pairing.redeem(dto.code, client_key)
     except MonitorPairingError as exc:
-        code = status.HTTP_429_TOO_MANY_REQUESTS if exc.too_many_attempts else status.HTTP_400_BAD_REQUEST
+        code = (
+            status.HTTP_429_TOO_MANY_REQUESTS
+            if exc.too_many_attempts
+            else status.HTTP_400_BAD_REQUEST
+        )
         raise HTTPException(status_code=code, detail=exc.detail) from exc
 
     live_session = LiveTelemetryRepository(db).get_session(claims.session_id)
     experience = db.get(Experience, live_session.experience_id) if live_session else None
     if live_session is None or experience is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La sesión en vivo ya no está disponible.")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La sesión en vivo ya no está disponible.",
+        )
 
     token, expires_at = create_monitor_token(claims.session_id, claims.host_id)
     return MonitorTokenDTO(
         access_token=token,
         session_id=claims.session_id,
-        experience_title=experience.title,
+        experience_title=str(experience.title),
         expires_at=expires_at,
     )
 
@@ -205,12 +229,14 @@ def _authorize_websocket(session_id: str, token: str | None) -> str:
         return authorize_console_viewer(db, session_id, user)
 
 
-@live_telemetry_router.websocket("/ws/{session_id}")
+@live_telemetry_router.websocket("/telemetry/ws/{session_id}")
 async def live_telemetry_websocket(
     websocket: WebSocket,
     session_id: str,
     hub: Annotated[LiveTelemetryHub, Depends(get_live_telemetry_hub)],
-    token: Annotated[str | None, Query(description="JWT del anfitrión o token de monitor vinculado")] = None,
+    token: Annotated[
+        str | None, Query(description="JWT del anfitrión o token de monitor vinculado")
+    ] = None,
 ) -> None:
     """
     Canal WebSocket de solo lectura que emite la telemetría agregada cada 2.5 s (HU-17).
@@ -246,6 +272,14 @@ async def live_telemetry_websocket(
     except WebSocketDisconnect:
         pass
     except Exception as exc:
-        logger.warning("Conexión de consola cerrada por error en la sesión %s: %s", canonical_id, exc)
+        logger.warning(
+            "Conexión de consola cerrada por error en la sesión %s: %s", canonical_id, exc
+        )
     finally:
         await hub.unsubscribe(canonical_id, websocket)
+
+
+# HU-18/HU-19: el Asistente MC se publica bajo este mismo router para no modificar main.py
+from app.live.control.mc_assistant_controller import mc_assistant_router  # noqa: E402
+
+live_telemetry_router.include_router(mc_assistant_router)
