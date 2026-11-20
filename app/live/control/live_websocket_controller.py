@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.core.database import get_db, SessionLocal
-from app.experience.entity.experience import Experience
+from app.experience.entity.experience import Experience, ExperienceStatusEnum
 from app.live.dto.live_dto import (
     LiveSessionCreateDTO,
     LiveSessionResponseDTO,
@@ -75,6 +75,11 @@ def start_live_session(dto: LiveSessionCreateDTO, db: Session = Depends(get_db))
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Experiencia con ID {dto.experience_id} no encontrada.",
+        )
+    if experience.status != ExperienceStatusEnum.LIVE:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El monitoreo en vivo solo está disponible cuando el evento ha iniciado (estado LIVE).",
         )
 
     session_repo = LiveSessionRepository(db)

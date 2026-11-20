@@ -132,10 +132,12 @@ class BookingService:
                 "exp": utc(experience.event_date) + timedelta(days=2),
             }, settings.JWT_SECRET, algorithm=settings.ALGORITHM)
             self.repository.create_ticket(Ticket(id=ticket_id, booking_id=booking.id, ticket_code=code, qr_payload=payload))
+        from app.notifications.service import NotificationService
+        self.db.flush()
+        notifier = NotificationService(self.db)
+        notifier.booking_confirmed(experience, booking)
         if experience.status == ExperienceStatusEnum.CONFIRMED:
-            from app.notifications.service import NotificationService
-            self.db.flush()
-            NotificationService(self.db).confirmation(experience, booking, crossed=crossed)
+            notifier.confirmation(experience, booking, crossed=crossed)
 
     def confirm_booking(self, booking_id: str) -> BookingResponseDTO:
         """Confirma únicamente una reserva con pago ya verificado y cupo todavía retenido."""

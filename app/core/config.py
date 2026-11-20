@@ -61,6 +61,19 @@ class Settings(BaseSettings):
     AGE_CLASSIFIER_PROTOTXT_PATH: str = ""
     AGE_CLASSIFIER_MODEL_PATH: str = ""
 
+    # Asistente IA en Vivo (Vertex AI / Gemini y Ollama / Qwen 3.8)
+    AI_PROVIDER: str = "vertex"
+    CHAT_DEFAULT_PROVIDER: str = "vertex"
+    OLLAMA_BASE_URL: str = "http://127.0.0.1:11434"
+    OLLAMA_TIMEOUT_MS: int = Field(default=300000, ge=5000, le=600000)
+    CHAT_OLLAMA_MODEL: str = "qwen3.8:latest"
+    CHAT_TIMEOUT_SECONDS: int = Field(default=300, ge=5, le=600)
+    GEMINI_API_KEY: str = ""
+    GCP_PROJECT_ID: str = ""
+    GCP_LOCATION: str = "global"
+    GEMINI_MODEL: str = "gemini-3.8-flash"
+    YOUTUBE_API_KEY: str = ""
+
     # URL PostgreSQL opcional; tiene prioridad sobre los campos DB_*.
     DATABASE_URL: str | None = None
 

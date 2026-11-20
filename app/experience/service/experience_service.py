@@ -531,6 +531,9 @@ class ExperienceService:
         try:
             StripeService(self.db).queue_event_refunds(exp)
             exp.status = ExperienceStatusEnum.CANCELLED
+            from app.notifications.service import NotificationService
+
+            NotificationService(self.db).event_cancelled(exp)
             updated = self.experience_repo.update(exp)
         except Exception:
             self.db.rollback()
@@ -691,3 +694,110 @@ class ExperienceService:
             total_pages=total_pages,
             experiences=items,
         )
+
+    def start_experience(self, experience_id: str, host_id: str) -> ExperienceResponseDTO:
+        """
+        Inicia formalmente una experiencia cambiando su estado a `LIVE`, cerrando nuevas reservas
+        de clientes y creando/activando su `LiveSession` para el monitoreo en vivo.
+        """
+        from app.live.entity.live_session import LiveSession, LiveSessionStatusEnum
+
+        exp = self.experience_repo.get_by_id(experience_id)
+        if not exp:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Experiencia no encontrada.",
+            )
+        if exp.host_id != host_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Solo el anfitrión creador puede iniciar este evento.",
+            )
+        if exp.status not in {
+            ExperienceStatusEnum.OPEN,
+            ExperienceStatusEnum.CONFIRMED,
+            ExperienceStatusEnum.LIVE,
+        }:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"No se puede iniciar un evento en estado {exp.status.value}.",
+            )
+
+        exp.status = ExperienceStatusEnum.LIVE
+        exp.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+
+        existing_session = (
+            self.db.query(LiveSession)
+            .filter(
+                LiveSession.experience_id == exp.id,
+                LiveSession.status.in_(
+                    [LiveSessionStatusEnum.INITIALIZED, LiveSessionStatusEnum.ACTIVE]
+                ),
+            )
+            .first()
+        )
+        if existing_session is None:
+            self.db.add(
+                LiveSession(
+                    experience_id=exp.id,
+                    host_id=exp.host_id,
+                    status=LiveSessionStatusEnum.ACTIVE,
+                )
+            )
+        else:
+            existing_session.status = LiveSessionStatusEnum.ACTIVE
+
+        from app.notifications.service import NotificationService
+
+        NotificationService(self.db).event_started(exp)
+        self.db.commit()
+        self.db.refresh(exp)
+        return self._to_response_dto(exp)
+
+    def finish_experience(self, experience_id: str, host_id: str) -> ExperienceResponseDTO:
+        """
+        Finaliza una experiencia en curso (`LIVE` -> `FINISHED`) y cierra su sesión de monitoreo.
+        """
+        from app.live.entity.live_session import LiveSession, LiveSessionStatusEnum
+
+        exp = self.experience_repo.get_by_id(experience_id)
+        if not exp:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Experiencia no encontrada.",
+            )
+        if exp.host_id != host_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Solo el anfitrión creador puede finalizar este evento.",
+            )
+        if exp.status not in {ExperienceStatusEnum.LIVE, ExperienceStatusEnum.FINISHED}:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Solo se puede finalizar un evento que ya está en curso (LIVE).",
+            )
+
+        now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+        exp.status = ExperienceStatusEnum.FINISHED
+        exp.updated_at = now_naive
+
+        active_sessions = (
+            self.db.query(LiveSession)
+            .filter(
+                LiveSession.experience_id == exp.id,
+                LiveSession.status.in_(
+                    [LiveSessionStatusEnum.INITIALIZED, LiveSessionStatusEnum.ACTIVE]
+                ),
+            )
+            .all()
+        )
+        for live_session in active_sessions:
+            live_session.status = LiveSessionStatusEnum.ENDED
+            live_session.ended_at = now_naive
+
+        from app.notifications.service import NotificationService
+
+        NotificationService(self.db).event_finished(exp)
+        self.db.commit()
+        self.db.refresh(exp)
+        return self._to_response_dto(exp)

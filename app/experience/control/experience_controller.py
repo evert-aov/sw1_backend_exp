@@ -223,6 +223,47 @@ def update_experience(
 
 
 @experience_router.patch(
+    "/{experience_id}/start",
+    response_model=ExperienceResponseDTO,
+    status_code=status.HTTP_200_OK,
+    summary="Iniciar un evento y habilitar su monitoreo en vivo",
+    description=(
+        "Cambia el estado de la experiencia a `LIVE`, cierra nuevas reservas de clientes "
+        "y activa la sesión de monitoreo en vivo. Solo puede ejecutarlo el anfitrión propietario."
+    ),
+)
+def start_experience(
+    experience_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(RoleChecker(["HOST", "VENUE"]))],
+) -> ExperienceResponseDTO:
+    service = ExperienceService(db)
+    return service.start_experience(
+        experience_id=experience_id, host_id=current_user.id
+    )
+
+
+@experience_router.patch(
+    "/{experience_id}/finish",
+    response_model=ExperienceResponseDTO,
+    status_code=status.HTTP_200_OK,
+    summary="Finalizar un evento en curso y cerrar el monitoreo en vivo",
+    description=(
+        "Cambia el estado de la experiencia de `LIVE` a `FINISHED` y cierra su sesión de telemetría."
+    ),
+)
+def finish_experience(
+    experience_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(RoleChecker(["HOST", "VENUE"]))],
+) -> ExperienceResponseDTO:
+    service = ExperienceService(db)
+    return service.finish_experience(
+        experience_id=experience_id, host_id=current_user.id
+    )
+
+
+@experience_router.patch(
     "/{experience_id}/cancel",
     response_model=ExperienceResponseDTO,
     status_code=status.HTTP_200_OK,
