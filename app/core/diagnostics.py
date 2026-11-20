@@ -249,7 +249,7 @@ def normalize_request_id(value: str | None) -> str:
     try:
         parsed = uuid.UUID(value) if value is not None else None
         return str(parsed) if parsed is not None and parsed.version == 4 else str(uuid.uuid4())
-    except AttributeError, TypeError, ValueError:
+    except (AttributeError, TypeError, ValueError):
         return str(uuid.uuid4())
 
 
