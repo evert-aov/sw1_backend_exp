@@ -79,7 +79,12 @@ class StripeService:
             metadata["checkout_params_version"] = 2
             payment.payment_metadata = metadata
 
-    def create_checkout_session(self, booking_id: str, user_id: str) -> CheckoutSessionDTO:
+    def create_checkout_session(
+        self,
+        booking_id: str,
+        user_id: str,
+        mobile_return_url: str | None = None,
+    ) -> CheckoutSessionDTO:
         """Guarda un intento durable antes de llamar al proveedor y reutiliza su clave."""
         try:
             booking, experience, payment = self._locked(booking_id)
@@ -89,13 +94,20 @@ class StripeService:
                 raise HTTPException(status_code=409, detail="La retención no está vigente")
             amount = minor_units(booking.total_amount, booking.currency)
             if not payment:
-                origin = settings.FRONTEND_URL.rstrip("/")
+                if mobile_return_url:
+                    base = mobile_return_url.rstrip("/")
+                    success_url = f"{base}?status=returned"
+                    cancel_url = f"{base}?status=cancelled"
+                else:
+                    origin = settings.FRONTEND_URL.rstrip("/")
+                    success_url = f"{origin}/checkout/{booking.id}?payment=returned"
+                    cancel_url = f"{origin}/checkout/{booking.id}?payment=cancelled"
                 params = {
                     "mode": "payment",
                     "client_reference_id": booking.id,
                     "metadata": {"app": "experiencia", "booking_id": booking.id},
-                    "success_url": f"{origin}/checkout/{booking.id}?payment=returned",
-                    "cancel_url": f"{origin}/checkout/{booking.id}?payment=cancelled",
+                    "success_url": success_url,
+                    "cancel_url": cancel_url,
                     "line_items": [{"quantity": 1, "price_data": {
                         "currency": booking.currency.lower(), "unit_amount": amount,
                         "product_data": {"name": f"Reserva {booking.id}"},

@@ -59,11 +59,17 @@ class PushNotificationService:
             token_provider (Callable[[], tuple[str, str]] | None): Proveedor de (token OAuth, project_id)
                 inyectable para pruebas.
         """
-        self._path = (
-            credentials_path
-            if credentials_path is not None
-            else os.getenv("FIREBASE_CREDENTIALS_PATH", "")
-        )
+        if credentials_path is not None:
+            resolved_path = credentials_path
+        else:
+            from app.core.config import BACKEND_ROOT, settings
+
+            raw_path = os.getenv("FIREBASE_CREDENTIALS_PATH") or settings.FIREBASE_CREDENTIALS_PATH
+            if raw_path and not Path(raw_path).is_absolute():
+                resolved_path = str((BACKEND_ROOT / raw_path).resolve())
+            else:
+                resolved_path = raw_path
+        self._path = resolved_path
         self._post = post or httpx.post
         self._token_provider = token_provider
         self._credentials: Any = None

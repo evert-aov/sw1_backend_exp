@@ -74,6 +74,9 @@ class Settings(BaseSettings):
     GEMINI_MODEL: str = "gemini-3.8-flash"
     YOUTUBE_API_KEY: str = ""
 
+    # Notificaciones Push (Firebase Cloud Messaging — HU-18)
+    FIREBASE_CREDENTIALS_PATH: str = ""
+
     # URL PostgreSQL opcional; tiene prioridad sobre los campos DB_*.
     DATABASE_URL: str | None = None
 
