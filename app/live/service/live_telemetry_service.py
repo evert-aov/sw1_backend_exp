@@ -92,12 +92,14 @@ class MetricSample:
     dominant_age_group: AgeGroupEnum | None
 
     @classmethod
-    def from_metric(cls, metric: Any) -> "MetricSample":
+    def from_metric(cls, metric: Any, recorded_at: datetime | None = None) -> "MetricSample":
         """
         Construye una muestra desde un `LiveMetricsDTO` o una entidad `AudienceMetric`.
 
         Args:
             metric (Any): Objeto con los atributos de una métrica agregada de audiencia.
+            recorded_at (datetime | None): Instante UTC ya normalizado (por ejemplo leído de la BD);
+                si es None se usa `metric.recorded_at`.
 
         Returns:
             MetricSample: Muestra normalizada con fecha en UTC.
@@ -106,7 +108,7 @@ class MetricSample:
         if age is not None and not isinstance(age, AgeGroupEnum):
             age = AgeGroupEnum(age)
         return cls(
-            recorded_at=as_utc(metric.recorded_at),
+            recorded_at=as_utc(recorded_at or metric.recorded_at),
             attention_score=float(metric.attention_score or 0.0),
             joy_score=float(metric.joy_score or 0.0),
             detected_faces_count=int(metric.detected_faces_count or 0),
@@ -144,10 +146,9 @@ def database_metrics_source(session_id: str, after: datetime, limit: int) -> lis
     Returns:
         list[MetricSample]: Métricas nuevas de la sesión en orden cronológico.
     """
-    naive_after = as_utc(after).replace(tzinfo=None)
     with SessionLocal() as db:
-        rows = LiveTelemetryRepository(db).get_metrics_after(session_id, naive_after, limit)
-        return [MetricSample.from_metric(row) for row in rows]
+        rows = LiveTelemetryRepository(db).get_metrics_after(session_id, as_utc(after), limit)
+        return [MetricSample.from_metric(row, recorded_at=recorded) for row, recorded in rows]
 
 
 class SessionTelemetryState:
@@ -169,6 +170,7 @@ class SessionTelemetryState:
         self.pulse: deque[PulsePointDTO] = deque(maxlen=PULSE_WINDOW_SIZE)
         self.traffic_light: EnergyTrafficLightEnum | None = None
         self.latest: MetricSample | None = None
+        self.fresh: list[MetricSample] = []  # Muestras nuevas aún no entregadas a los oyentes
 
     @property
     def last_recorded_at(self) -> datetime | None:
@@ -197,9 +199,14 @@ class SessionTelemetryState:
         smoothed = smooth_energy(self.raw_energy)
         self.traffic_light = resolve_traffic_light(smoothed, self.traffic_light)
         self.pulse.append(
-            PulsePointDTO(recorded_at=sample.recorded_at, energy_score=smoothed, traffic_light=self.traffic_light)
+            PulsePointDTO(
+                recorded_at=sample.recorded_at,
+                energy_score=smoothed,
+                traffic_light=self.traffic_light,
+            )
         )
         self.latest = sample
+        self.fresh.append(sample)
         return True
 
     def signal_status(self, now: datetime) -> SignalStatusEnum:
@@ -263,6 +270,51 @@ class TelemetrySubscriber(Protocol):
         ...
 
 
+class TelemetryListener(Protocol):
+    """
+    Módulo que reacciona a la telemetría de cada sesión (por ejemplo, el Asistente MC de HU-18).
+
+    Los mensajes que devuelve se envían a los clientes del mismo canal WebSocket.
+    """
+
+    async def on_subscribe(self, session_id: str) -> list[str]:
+        """
+        Mensajes iniciales para un cliente recién conectado.
+
+        Args:
+            session_id (str): UUID de la sesión en vivo.
+
+        Returns:
+            list[str]: Mensajes JSON serializados.
+        """
+        ...
+
+    async def on_tick(
+        self, session_id: str, samples: list[MetricSample], now: datetime
+    ) -> list[str]:
+        """
+        Procesa las muestras nuevas de un ciclo de emisión.
+
+        Args:
+            session_id (str): UUID de la sesión en vivo.
+            samples (list[MetricSample]): Muestras nuevas en orden cronológico.
+            now (datetime): Instante del ciclo en UTC.
+
+        Returns:
+            list[str]: Mensajes JSON serializados a emitir a todos los clientes.
+        """
+        ...
+
+    def on_release(self, session_id: str) -> None:
+        """
+        Libera el estado del oyente cuando el canal de la sesión se detiene.
+
+        Args:
+            session_id (str): UUID de la sesión en vivo.
+        """
+        ...
+
+
 class LiveTelemetryHub:
     """
     Orquestador de canales de telemetría por sesión con emisión sincronizada cada 2.5 s (HU-17).
@@ -292,6 +344,8 @@ class LiveTelemetryHub:
         self._states: dict[str, SessionTelemetryState] = {}
         self._subscribers: dict[str, set[TelemetrySubscriber]] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
+        self._listeners: list[TelemetryListener] = []
+        self._retained_until: dict[str, datetime] = {}
 
     def _state_for(self, session_id: str) -> SessionTelemetryState:
         """
@@ -318,6 +372,84 @@ class LiveTelemetryHub:
             int: Número de clientes conectados.
         """
         return len(self._subscribers.get(session_id, ()))
+
+    def add_listener(self, listener: TelemetryListener) -> None:
+        """
+        Registra un módulo que reacciona a cada ciclo de telemetría.
+
+        Args:
+            listener (TelemetryListener): Oyente a registrar (se ignora si ya estaba registrado).
+        """
+        if listener not in self._listeners:
+            self._listeners.append(listener)
+
+    def is_active(self, session_id: str) -> bool:
+        """
+        Indica si el canal de la sesión debe seguir funcionando.
+
+        Un canal está activo si tiene clientes conectados o si fue retenido (por ejemplo, porque un
+        celular vinculado espera notificaciones push aunque no tenga el WebSocket abierto).
+
+        Args:
+            session_id (str): UUID de la sesión en vivo.
+
+        Returns:
+            bool: True si hay clientes o una retención vigente.
+        """
+        if self.subscriber_count(session_id) > 0:
+            return True
+        until = self._retained_until.get(session_id)
+        return until is not None and until > self._clock()
+
+    def retain(self, session_id: str, until: datetime) -> None:
+        """
+        Mantiene el canal de la sesión activo sin clientes hasta la fecha indicada.
+
+        Args:
+            session_id (str): UUID de la sesión en vivo.
+            until (datetime): Fecha UTC hasta la que se retiene el canal.
+        """
+        current = self._retained_until.get(session_id)
+        self._retained_until[session_id] = until if current is None or until > current else current
+        self._state_for(session_id)
+        self._ensure_loop(session_id)
+
+    def _ensure_loop(self, session_id: str) -> None:
+        """
+        Inicia el bucle de emisión de la sesión si no está corriendo.
+
+        Args:
+            session_id (str): UUID de la sesión en vivo.
+        """
+        task = self._tasks.get(session_id)
+        if task is None or task.done():
+            self._tasks[session_id] = asyncio.create_task(self._broadcast_loop(session_id))
+
+    async def send_event(self, session_id: str, payload: str) -> None:
+        """
+        Emite un mensaje adicional (por ejemplo una alerta MC) a todos los clientes de la sesión.
+
+        Args:
+            session_id (str): UUID de la sesión en vivo.
+            payload (str): Mensaje JSON serializado.
+        """
+        for subscriber in list(self._subscribers.get(session_id, ())):
+            await self._send(session_id, subscriber, payload)
+
+    def _release(self, session_id: str) -> None:
+        """
+        Libera el estado de una sesión que ya no está activa y avisa a los oyentes.
+
+        Args:
+            session_id (str): UUID de la sesión en vivo.
+        """
+        self._states.pop(session_id, None)
+        self._retained_until.pop(session_id, None)
+        for listener in self._listeners:
+            try:
+                listener.on_release(session_id)
+            except Exception as exc:
+                logger.warning("Oyente falló al liberar la sesión %s: %s", session_id, exc)
 
     def publish(self, session_id: str, metrics: LiveMetricsDTO) -> None:
         """
@@ -347,14 +479,16 @@ class LiveTelemetryHub:
         Returns:
             SessionTelemetryState: Estado actualizado de la sesión.
         """
-        if self.subscriber_count(session_id) > 0:
+        if self.is_active(session_id):
             state = self._state_for(session_id)
         else:
             state = self._states.get(session_id) or SessionTelemetryState(session_id)
         now = self._clock()
         after = state.last_recorded_at or (now - timedelta(seconds=INITIAL_LOOKBACK_SECONDS))
         try:
-            samples = await asyncio.to_thread(self._metrics_source, session_id, after, PULSE_WINDOW_SIZE)
+            samples = await asyncio.to_thread(
+                self._metrics_source, session_id, after, PULSE_WINDOW_SIZE
+            )
         except Exception as exc:  # La consola sigue emitiendo aunque la BD falle puntualmente
             logger.warning("No se pudieron leer métricas de la sesión %s: %s", session_id, exc)
             samples = []
@@ -386,11 +520,21 @@ class LiveTelemetryHub:
         self._subscribers.setdefault(session_id, set()).add(subscriber)
         snapshot = await self.get_snapshot(session_id)
         await self._send(session_id, subscriber, snapshot.model_dump_json())
+        for listener in self._listeners:
+            try:
+                for payload in await listener.on_subscribe(session_id):
+                    await self._send(session_id, subscriber, payload)
+            except Exception as exc:
+                logger.warning(
+                    "Oyente falló al suscribir un cliente a la sesión %s: %s", session_id, exc
+                )
 
-        task = self._tasks.get(session_id)
-        if task is None or task.done():
-            self._tasks[session_id] = asyncio.create_task(self._broadcast_loop(session_id))
-        logger.info("Consola suscrita a la sesión %s (%d clientes)", session_id, self.subscriber_count(session_id))
+        self._ensure_loop(session_id)
+        logger.info(
+            "Consola suscrita a la sesión %s (%d clientes)",
+            session_id,
+            self.subscriber_count(session_id),
+        )
 
     async def unsubscribe(self, session_id: str, subscriber: TelemetrySubscriber) -> None:
         """
@@ -408,7 +552,9 @@ class LiveTelemetryHub:
             return
 
         del self._subscribers[session_id]
-        self._states.pop(session_id, None)
+        if self.is_active(session_id):
+            return  # Sigue retenida por un dispositivo vinculado
+        self._release(session_id)
         task = self._tasks.pop(session_id, None)
         if task is not None and not task.done() and task is not asyncio.current_task():
             task.cancel()
@@ -426,10 +572,20 @@ class LiveTelemetryHub:
         Returns:
             LiveTelemetrySnapshotDTO: Instantánea emitida.
         """
-        snapshot = await self.get_snapshot(session_id)
-        payload = snapshot.model_dump_json()
-        for subscriber in list(self._subscribers.get(session_id, ())):
-            await self._send(session_id, subscriber, payload)
+        state = await self.refresh(session_id)
+        now = self._clock()
+        snapshot = state.snapshot(now)
+        await self.send_event(session_id, snapshot.model_dump_json())
+
+        fresh, state.fresh = state.fresh, []
+        for listener in self._listeners:
+            try:
+                events = await listener.on_tick(session_id, fresh, now)
+            except Exception as exc:
+                logger.warning("Oyente falló en la sesión %s: %s", session_id, exc)
+                continue
+            for payload in events:
+                await self.send_event(session_id, payload)
         return snapshot
 
     async def _send(self, session_id: str, subscriber: TelemetrySubscriber, payload: str) -> None:
@@ -454,13 +610,16 @@ class LiveTelemetryHub:
             session_id (str): UUID de la sesión en vivo.
         """
         try:
-            while self.subscriber_count(session_id) > 0:
+            while self.is_active(session_id):
                 await asyncio.sleep(self._interval)
                 await self.broadcast(session_id)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             logger.error("Fallo en la emisión de telemetría de la sesión %s: %s", session_id, exc)
+        if not self.is_active(session_id) and self._tasks.get(session_id) is asyncio.current_task():
+            self._tasks.pop(session_id, None)
+            self._release(session_id)
 
 
 # Instancia compartida por el proceso de la API

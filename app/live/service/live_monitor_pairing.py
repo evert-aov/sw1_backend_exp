@@ -84,7 +84,9 @@ def _monitor_signing_key() -> str:
     return sha256(f"{settings.JWT_SECRET}|{MONITOR_AUDIENCE}".encode()).hexdigest()
 
 
-def create_monitor_token(session_id: str, host_id: str, now: datetime | None = None) -> tuple[str, datetime]:
+def create_monitor_token(
+    session_id: str, host_id: str, now: datetime | None = None
+) -> tuple[str, datetime]:
     """
     Emite un token de monitor de solo lectura para una sesión en vivo.
 
@@ -133,6 +135,22 @@ def decode_monitor_token(token: str) -> MonitorClaims | None:
     if payload.get("scope") != MONITOR_SCOPE or not payload.get("sid"):
         return None
     return MonitorClaims(session_id=str(payload["sid"]), host_id=str(payload["sub"]))
+
+
+def monitor_token_expiry(token: str) -> datetime | None:
+    """
+    Obtiene la expiración de un token de monitor válido (HU-18: hasta cuándo enviar push al dispositivo).
+
+    Args:
+        token (str): Token de monitor.
+
+    Returns:
+        datetime | None: Expiración en UTC, o None si el token no es un token de monitor válido.
+    """
+    if decode_monitor_token(token) is None:
+        return None
+    claims = jwt.get_unverified_claims(token)
+    return datetime.fromtimestamp(int(claims["exp"]), tz=timezone.utc)
 
 
 class MonitorPairingService:
@@ -185,10 +203,16 @@ class MonitorPairingService:
         with self._lock:
             self._purge_expired()
             now = self._clock()
-            recent = [t for t in self._failures.get(client_key, []) if now - t < FAILED_ATTEMPTS_WINDOW_SECONDS]
+            recent = [
+                t
+                for t in self._failures.get(client_key, [])
+                if now - t < FAILED_ATTEMPTS_WINDOW_SECONDS
+            ]
             if len(recent) >= MAX_FAILED_ATTEMPTS:
                 self._failures[client_key] = recent
-                raise MonitorPairingError("Demasiados intentos. Espera unos minutos.", too_many_attempts=True)
+                raise MonitorPairingError(
+                    "Demasiados intentos. Espera unos minutos.", too_many_attempts=True
+                )
 
             pending = self._codes.pop(normalized, None)
             if pending is None or pending.expires_at < now:
@@ -216,7 +240,11 @@ class MonitorPairingService:
         now = self._clock()
         for code in [c for c, pending in self._codes.items() if pending.expires_at < now]:
             del self._codes[code]
-        for key in [k for k, times in self._failures.items() if all(now - t >= FAILED_ATTEMPTS_WINDOW_SECONDS for t in times)]:
+        for key in [
+            k
+            for k, times in self._failures.items()
+            if all(now - t >= FAILED_ATTEMPTS_WINDOW_SECONDS for t in times)
+        ]:
             del self._failures[key]
 
 

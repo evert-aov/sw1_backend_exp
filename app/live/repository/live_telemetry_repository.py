@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.live.entity.audience_metric import AudienceMetric
@@ -36,26 +37,35 @@ class LiveTelemetryRepository:
         """
         return self.db.get(LiveSession, session_id)
 
-    def get_metrics_after(self, session_id: str, after: datetime, limit: int) -> list[AudienceMetric]:
+    def get_metrics_after(
+        self, session_id: str, after: datetime, limit: int
+    ) -> list[tuple[AudienceMetric, datetime]]:
         """
         Obtiene las métricas registradas después de un instante, en orden cronológico.
 
+        `recorded_at` es una columna sin zona horaria: PostgreSQL guarda en ella la hora convertida a
+        la zona de la sesión (`TimeZone`, por ejemplo America/La_Paz) cuando el pipeline de visión
+        escribe fechas UTC con zona. Por eso la comparación y el resultado se hacen en UTC real
+        interpretando la columna con esa misma zona.
+
         Args:
             session_id (str): UUID de la sesión en vivo.
-            after (datetime): Instante exclusivo desde el cual buscar (UTC sin zona horaria).
+            after (datetime): Instante exclusivo en UTC con zona horaria.
             limit (int): Cantidad máxima de métricas a devolver (las más recientes).
 
         Returns:
-            list[AudienceMetric]: Métricas posteriores a `after`, de la más antigua a la más reciente.
+            list[tuple[AudienceMetric, datetime]]: Métricas posteriores a `after` con su instante en
+                UTC, de la más antigua a la más reciente.
         """
+        recorded_utc = func.timezone(func.current_setting("TimeZone"), AudienceMetric.recorded_at)
         rows = (
-            self.db.query(AudienceMetric)
+            self.db.query(AudienceMetric, recorded_utc.label("recorded_utc"))
             .filter(
                 AudienceMetric.live_session_id == session_id,
-                AudienceMetric.recorded_at > after,
+                recorded_utc > after,
             )
             .order_by(AudienceMetric.recorded_at.desc())
             .limit(limit)
             .all()
         )
-        return list(reversed(rows))
+        return [(metric, recorded) for metric, recorded in reversed(rows)]
